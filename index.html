@@ -478,6 +478,7 @@ function render(d, live){
     `PID ${bot.pid??"—"}`,
     `feed ${bot.mode||"—"}`,
     `sensitivity ${bot.sensitivity||"—"}`,
+    (bot.paper_active_timeframe||(d.paper&&d.paper.active_timeframe))?`paper TF ${bot.paper_active_timeframe||d.paper.active_timeframe}`:"",
     bot.started_wib?`started ${fullTime(bot.started_wib)}`:"",
     bot.last_closed?`last closed candle ${bot.last_closed}`:"",
     bot.last_closed_wib?`at ${fullTime(bot.last_closed_wib)}`:"",
@@ -487,6 +488,14 @@ function render(d, live){
   $("botmeta").innerHTML=bits.map(esc).join(" · ");
 
   const paper=isUnconfirmed()?((d.paper_unconfirmed)||{}):((d.paper)||{});
+  const ph=$("paperh2");
+  if(ph){
+    const tf=paper.active_timeframe||bot.paper_active_timeframe||"";
+    const tfBit=tf?` · ${esc(tf)}`:"";
+    ph.innerHTML=isUnconfirmed()
+      ?`Paper trading · Unconfirmed (repaints)${tfBit} <span class="side none" style="margin-left:6px">SIMULATED</span>`
+      :`Paper trading · Confirmed${tfBit} <span class="side none" style="margin-left:6px">SIMULATED</span>`;
+  }
   const money=(n,sign)=>{
     if(n==null||n==="") return "–";
     const x=Number(n);

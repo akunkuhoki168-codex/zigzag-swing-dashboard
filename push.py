@@ -186,7 +186,7 @@ def _simple_yaml(text: str) -> dict:
 
 
 def load_yaml_cfg() -> dict:
-    cfg = {"symbols": ["PUMPUSDT", "BTCUSDT", "ETHUSDT"], "timeframes": ["5m", "15m"], "sensitivity": "medium"}
+    cfg = {"symbols": ["PUMPUSDT", "BTCUSDT", "ETHUSDT"], "timeframes": ["5m", "15m"], "sensitivity": "medium", "paper_active_timeframe": "15m"}
     try:
         text = CFG_FILE.read_text()
         try:
@@ -203,6 +203,11 @@ def load_yaml_cfg() -> dict:
                 cfg["sensitivity"] = str(data["sensitivity"]).lower()
             if data.get("chart_url"):
                 cfg["chart_url"] = str(data["chart_url"])
+            paper = data.get("paper")
+            if isinstance(paper, dict) and paper.get("active_timeframe"):
+                cfg["paper_active_timeframe"] = str(paper["active_timeframe"]).strip().lower()
+            elif data.get("paper_active_timeframe"):
+                cfg["paper_active_timeframe"] = str(data["paper_active_timeframe"]).strip().lower()
     except Exception as e:
         log("config read failed", repr(e)[:200])
     return cfg
@@ -673,21 +678,31 @@ def load_closed_paper_trades(limit: int = 40, path: Path | None = None, actions:
     return rows[-limit:]
 
 
-CONFIRMED_PAPER_NOTE = (
-    "Paper only — no real orders or API keys. $50 notional at 1x, 0.05% taker fee per side, "
-    "fill at the confirmation candle close."
-)
-UNCONFIRMED_PAPER_NOTE = (
-    "Paper only — no real orders or API keys. Default $50 notional at 1x, 0.05% taker fee per side. "
-    "Enters at the close of the candle when a new unconfirmed BUY?/SELL? first appears. "
-    "If that signal fades (repaints), the position stays open. On 15m, every new same-direction "
-    "unconfirmed signal (including a pivot walk) adds another leg of the first leg's notional, "
-    "with no fade required. On 5m, a fade is required before a same-direction add. "
-    "Up to 4 adds (5 legs). An opposite unconfirmed signal closes the whole stack and flips."
-)
+def paper_notes(active_tf: str = "15m") -> tuple[str, str]:
+    tf = active_tf or "15m"
+    confirmed = (
+        f"Paper only — no real orders or API keys. $50 notional at 1x, 0.05% taker fee per side, "
+        f"fill at the confirmation candle close. One open position per coin, traded only on the "
+        f"active timeframe ({tf}). An opposite signal closes the trade and flips. "
+        f"Positions are not closed on fade, timeout, stop, or take-profit."
+    )
+    unconfirmed = (
+        f"Paper only — no real orders or API keys. Default $50 notional at 1x, 0.05% taker fee per side. "
+        f"Enters at the close of the candle when a new unconfirmed BUY?/SELL? first appears on the "
+        f"active timeframe ({tf}). One open position per coin. If that signal fades, the position "
+        f"stays open. On 15m, every new same-direction unconfirmed signal (including a pivot walk) "
+        f"adds another leg of the first leg's notional, with no fade required. On 5m, a fade is "
+        f"required before a same-direction add. Up to 4 adds (5 legs). An opposite unconfirmed "
+        f"signal closes the whole stack and flips. Positions are not closed on fade, timeout, "
+        f"stop, or take-profit."
+    )
+    return confirmed, unconfirmed
 
 
-def build_paper(prices: dict, state_path: Path | None = None, trades_path: Path | None = None, note: str | None = None, mode: str = "confirmed") -> dict:
+CONFIRMED_PAPER_NOTE, UNCONFIRMED_PAPER_NOTE = paper_notes("15m")
+
+
+def build_paper(prices: dict, state_path: Path | None = None, trades_path: Path | None = None, note: str | None = None, mode: str = "confirmed", active_timeframe: str = "15m") -> dict:
     path = state_path or PAPER_STATE
     try:
         st = json.loads(path.read_text(encoding="utf-8"))
@@ -779,6 +794,7 @@ def build_paper(prices: dict, state_path: Path | None = None, trades_path: Path 
         "updated_wib": st.get("updated_wib"),
         "mode": mode,
         "max_add_positions": 4 if mode == "unconfirmed" else 0,
+        "active_timeframe": active_timeframe or "15m",
         "note": note or (UNCONFIRMED_PAPER_NOTE if mode == "unconfirmed" else CONFIRMED_PAPER_NOTE),
     }
 
@@ -833,9 +849,11 @@ def build() -> dict:
     except Exception:
         pass
 
-    paper = build_paper(prices, PAPER_STATE, PAPER_TRADES, CONFIRMED_PAPER_NOTE, "confirmed")
+    active_tf = str(cfg.get("paper_active_timeframe") or "15m").lower()
+    confirmed_note, unconfirmed_note = paper_notes(active_tf)
+    paper = build_paper(prices, PAPER_STATE, PAPER_TRADES, confirmed_note, "confirmed", active_tf)
     paper_unconfirmed = build_paper(
-        prices, PAPER_STATE_UNCONF, PAPER_TRADES_UNCONF, UNCONFIRMED_PAPER_NOTE, "unconfirmed",
+        prices, PAPER_STATE_UNCONF, PAPER_TRADES_UNCONF, unconfirmed_note, "unconfirmed", active_tf,
     )
 
     return {
@@ -858,6 +876,7 @@ def build() -> dict:
             "sensitivity": cfg.get("sensitivity"),
             "symbols": cfg.get("symbols"),
             "timeframes": cfg.get("timeframes"),
+            "paper_active_timeframe": cfg.get("paper_active_timeframe") or "15m",
             "telegram": False,
             "chart_url": CHART_URL,
             "ws_error": loginfo.get("ws_error"),
