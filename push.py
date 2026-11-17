@@ -645,9 +645,10 @@ def scan_adx_readonly() -> list:
 
 
 
-def load_closed_paper_trades(limit: int = 40, path: Path | None = None) -> list:
+def load_closed_paper_trades(limit: int = 40, path: Path | None = None, actions: tuple | None = None) -> list:
     rows = []
     trades_path = path or PAPER_TRADES
+    want = set(actions) if actions else {"CLOSE"}
     try:
         if not trades_path.exists():
             return rows
@@ -659,11 +660,12 @@ def load_closed_paper_trades(limit: int = 40, path: Path | None = None) -> list:
                 rec = json.loads(line)
             except Exception:
                 continue
-            if rec.get("action") != "CLOSE":
+            if rec.get("action") not in want:
                 continue
             rec["url"] = f"{CHART_URL}?symbol={rec.get('symbol')}&tf={rec.get('timeframe')}"
-            rec["entry_txt"] = fmt_price(rec.get("entry"))
-            rec["exit_txt"] = fmt_price(rec.get("exit"))
+            rec["entry_txt"] = fmt_price(rec.get("entry") or rec.get("avg_entry"))
+            rec["exit_txt"] = fmt_price(rec.get("exit") or rec.get("price"))
+            rec["price_txt"] = fmt_price(rec.get("price") or rec.get("exit"))
             rec["pnl_txt"] = None if rec.get("pnl") is None else f"{rec['pnl']:+.4f}"
             rows.append(rec)
     except OSError as e:
@@ -676,9 +678,11 @@ CONFIRMED_PAPER_NOTE = (
     "fill at the confirmation candle close."
 )
 UNCONFIRMED_PAPER_NOTE = (
-    "Paper only — no real orders or API keys. $50 notional at 1x, 0.05% taker fee per side. "
-    "Enters at the close of the candle when a new unconfirmed BUY?/SELL? first appears; "
-    "exits or flips on an opposite unconfirmed signal, or exits as 'repainted' if that signal disappears."
+    "Paper only — no real orders or API keys. Default $50 notional at 1x, 0.05% taker fee per side. "
+    "Enters at the close of the candle when a new unconfirmed BUY?/SELL? first appears. "
+    "If that signal fades (repaints), the position stays open. A later same-direction unconfirmed "
+    "signal adds another leg of the first leg's notional (up to 4 adds, 5 legs). "
+    "An opposite unconfirmed signal closes the whole stack and flips."
 )
 
 
@@ -707,6 +711,17 @@ def build_paper(prices: dict, state_path: Path | None = None, trades_path: Path 
         gross = (float(mark) - entry) * qty * direction
         upnl = gross - (qty * float(mark) * fee_rate)
         unrealized += upnl
+        legs_out = []
+        for leg in (p.get("legs") or []):
+            legs_out.append({
+                "price": leg.get("price"),
+                "price_txt": fmt_price(leg.get("price")),
+                "qty": leg.get("qty"),
+                "notional": leg.get("notional"),
+                "opened_at_wib": leg.get("opened_at_wib"),
+                "opened_at_utc": leg.get("opened_at_utc"),
+            })
+        leg_count = int(p.get("leg_count") or len(legs_out) or 1)
         positions.append({
             "symbol": sym,
             "timeframe": p.get("timeframe"),
@@ -714,11 +729,21 @@ def build_paper(prices: dict, state_path: Path | None = None, trades_path: Path 
             "qty": qty,
             "entry": entry,
             "entry_txt": fmt_price(entry),
+            "avg_entry": entry,
+            "avg_entry_txt": fmt_price(entry),
             "mark": float(mark),
             "mark_txt": fmt_price(mark),
             "margin": p.get("margin"),
+            "notional": p.get("notional"),
+            "first_notional": p.get("first_notional"),
+            "leg_count": leg_count,
+            "faded": bool(p.get("faded")),
+            "fade_count": int(p.get("fade_count") or 0),
+            "last_fade_wib": p.get("last_fade_wib"),
+            "legs": legs_out,
             "unrealized": round(upnl, 4),
             "opened_at_wib": p.get("opened_at_wib"),
+            "opened_at_utc": p.get("opened_at_utc"),
             "url": f"{CHART_URL}?symbol={sym}&tf={p.get('timeframe')}",
         })
     wallet = float(st.get("balance") or 0)
@@ -726,7 +751,13 @@ def build_paper(prices: dict, state_path: Path | None = None, trades_path: Path 
     closed = int(st.get("closed_count") or 0)
     wins = int(st.get("win_count") or 0)
     starting = float(st.get("starting_balance") or 1000)
-    closed_trades = list(reversed(load_closed_paper_trades(40, path=trades_path or PAPER_TRADES)))
+    trades_file = trades_path or PAPER_TRADES
+    closed_trades = list(reversed(load_closed_paper_trades(40, path=trades_file)))
+    events = []
+    if mode == "unconfirmed":
+        events = list(reversed(load_closed_paper_trades(
+            60, path=trades_file, actions=("CLOSE", "FADED", "ADD", "REPAINTED"),
+        )))
     return {
         "starting_balance": starting,
         "balance": round(wallet, 4),
@@ -743,8 +774,10 @@ def build_paper(prices: dict, state_path: Path | None = None, trades_path: Path 
         "taker_fee": fee_rate,
         "positions": positions,
         "closed_trades": closed_trades,
+        "events": events or closed_trades,
         "updated_wib": st.get("updated_wib"),
         "mode": mode,
+        "max_add_positions": 4 if mode == "unconfirmed" else 0,
         "note": note or (UNCONFIRMED_PAPER_NOTE if mode == "unconfirmed" else CONFIRMED_PAPER_NOTE),
     }
 
