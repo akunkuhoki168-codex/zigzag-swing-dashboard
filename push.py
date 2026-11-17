@@ -680,9 +680,10 @@ CONFIRMED_PAPER_NOTE = (
 UNCONFIRMED_PAPER_NOTE = (
     "Paper only — no real orders or API keys. Default $50 notional at 1x, 0.05% taker fee per side. "
     "Enters at the close of the candle when a new unconfirmed BUY?/SELL? first appears. "
-    "If that signal fades (repaints), the position stays open. A later same-direction unconfirmed "
-    "signal adds another leg of the first leg's notional (up to 4 adds, 5 legs). "
-    "An opposite unconfirmed signal closes the whole stack and flips."
+    "If that signal fades (repaints), the position stays open. On 15m, every new same-direction "
+    "unconfirmed signal (including a pivot walk) adds another leg of the first leg's notional, "
+    "with no fade required. On 5m, a fade is required before a same-direction add. "
+    "Up to 4 adds (5 legs). An opposite unconfirmed signal closes the whole stack and flips."
 )
 
 
