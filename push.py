@@ -158,6 +158,7 @@ def _simple_yaml(text: str) -> dict:
     """Tiny subset parser for config.yaml (lists, scalars, comments)."""
     data = {}
     key = None
+    quotes = "\'" + '"'
     for raw in text.splitlines():
         line = raw.split("#", 1)[0].rstrip()
         if not line.strip():
@@ -167,12 +168,12 @@ def _simple_yaml(text: str) -> dict:
                 data.setdefault(key, [])
                 if not isinstance(data[key], list):
                     data[key] = []
-                data[key].append(line.strip()[2:].strip().strip(""'"))
+                data[key].append(line.strip()[2:].strip().strip(quotes))
             continue
         if ":" in line and not line.startswith(" "):
             k, _, v = line.partition(":")
             key = k.strip()
-            v = v.strip().strip(""'")
+            v = v.strip().strip(quotes)
             data[key] = v if v else []
     return data
 
