@@ -56,7 +56,7 @@ td:not(:first-child),th:not(:first-child){text-align:right}
   <div class="card">
     <div class="meta" id="botmeta">Waiting for data…</div>
   </div>
-  <h2>Watched markets</h2>
+  <h2>Watched markets <small style="color:var(--mut);font-weight:400">20 mid-cap perps · 5m &amp; 15m</small></h2>
   <div class="grid" id="markets"><div class="empty">Loading markets…</div></div>
   <div class="card" style="margin-top:12px">
     <h2>Recent alerts</h2>
@@ -125,19 +125,24 @@ function render(d, live){
   const mkts=d.markets||[];
   if(!mkts.length){ $("markets").innerHTML=`<div class="empty">No markets yet</div>`; }
   else {
-    $("markets").innerHTML=mkts.map(m=>{
-      const px=live[m.symbol] || m.price_txt || m.price || "—";
+    const order=[]; const by={};
+    for(const m of mkts){
+      if(!by[m.symbol]){ by[m.symbol]=[]; order.push(m.symbol); }
+      by[m.symbol].push(m);
+    }
+    const tfLine=(m)=>{
       const last=m.last_signal;
       const form=m.forming;
       const err=m.error?`<div class="err">${esc(m.error)}</div>`:"";
-      const lastTxt=last?`${pill(last.name)} ${esc(last.price_txt||last.price)} <span class="k">${esc(last.kind||"")} · pivot ${esc(fullTime(last.pivot_wib))}${last.confirm_wib?" · confirmed "+fullTime(last.confirm_wib):""}${last.lag!=null?" · lag "+last.lag:""}${last.stars? " · "+"★".repeat(last.stars)+"☆".repeat(Math.max(0,3-last.stars)):""}</span>`:pill(null)+" no confirmed swing yet";
-      const formTxt=form?`${pill(form.name)} ${esc(form.price_txt||form.price)} <span class="k">forming · ${esc(form.kind||"")} · ${esc(fullTime(form.pivot_wib))}</span>`:`<span class="side none">none</span>`;
-      return `<div class="mkt">
-        <div class="top"><a class="sym" href="${esc(m.url||CHART+"?symbol="+m.symbol+"&tf="+m.tf)}">${esc(m.symbol)}<span class="tf">${esc(m.tf)}</span></a><div class="px">${esc(px)}</div></div>
-        <div class="row"><div class="k">Last confirmed</div><div class="v">${lastTxt}</div></div>
-        <div class="row"><div class="k">Forming</div><div class="v">${formTxt}</div></div>
-        ${err}
-      </div>`;
+      const lastTxt=last?`${pill(last.name)} ${esc(last.price_txt||last.price)} <span class="k">${esc(last.kind||"")} · pivot ${esc(fullTime(last.pivot_wib))}${last.confirm_wib?" · confirmed "+fullTime(last.confirm_wib):""}${last.lag!=null?" · lag "+last.lag:""}</span>`:pill(null)+" no confirmed swing yet";
+      const formTxt=form?`${pill(form.name)} ${esc(form.price_txt||form.price)} <span class="k">forming</span>`:`<span class="side none">none</span>`;
+      return `<div class="row" style="align-items:flex-start"><div class="k"><a class="sym" href="${esc(m.url||CHART+"?symbol="+m.symbol+"&tf="+m.tf)}">${esc(m.tf)}</a></div><div class="v">${lastTxt}<div class="k" style="margin-top:2px">Forming ${formTxt}</div>${err}</div></div>`;
+    };
+    $("markets").innerHTML=order.map(sym=>{
+      const list=by[sym];
+      const px=live[sym] || (list[0]&&(list[0].price_txt||list[0].price)) || "—";
+      const href=CHART+"?symbol="+encodeURIComponent(sym)+"&tf=5m";
+      return `<div class="mkt"><div class="top"><a class="sym" href="${esc(href)}">${esc(sym)}</a><div class="px">${esc(px)}</div></div>${list.map(tfLine).join("")}</div>`;
     }).join("");
   }
 

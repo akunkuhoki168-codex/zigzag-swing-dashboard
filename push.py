@@ -21,6 +21,7 @@ import time
 import traceback
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -32,6 +33,7 @@ CFG_FILE = BOT_DIR / "config.yaml"
 BOT_PIDF = BOT / "run" / "bot.pid"
 SUP_PIDF = BOT / "run" / "supervisor.pid"
 ADX_STATE = Path("/workspace/adx/state.json")  # read-only
+ALERTS_JSONL = BOT / "alerts.jsonl"
 
 HERE = Path(os.path.dirname(os.path.abspath(__file__)))
 STATE = HERE / "state"
@@ -402,43 +404,97 @@ def pack_signal(sig: dict | None) -> dict | None:
     }
 
 
+def _one_market(sym: str, tf: str, prices: dict, sensitivity: str) -> dict:
+    item = {
+        "symbol": sym,
+        "tf": tf,
+        "price": prices.get(sym),
+        "price_txt": fmt_price(prices.get(sym)),
+        "url": f"{CHART_URL}?symbol={sym}&tf={tf}",
+        "error": None,
+        "last_signal": None,
+        "forming": None,
+        "bars": None,
+        "last_bar_wib": None,
+    }
+    try:
+        candles = klines(sym, tf, 1000)
+        if candles:
+            item["bars"] = len(candles)
+            item["last_bar_wib"] = wib_from_sec(candles[-1]["time"])
+            last_closed = candles[-2] if len(candles) >= 2 else candles[-1]
+            if sym not in prices:
+                item["price"] = last_closed["close"]
+                item["price_txt"] = fmt_price(last_closed["close"])
+        pack = detect_swing_signals(candles, tf, sensitivity, True)
+        sigs = pack.get("signals") or []
+        item["last_signal"] = pack_signal(sigs[-1] if sigs else None)
+        item["forming"] = pack_signal(pack.get("provisional"))
+    except Exception as e:
+        item["error"] = repr(e)[:200]
+        log("swing", sym, tf, item["error"])
+    return item
+
+
 def build_markets(cfg: dict, prices: dict) -> list:
-    rows = []
-    for sym in cfg["symbols"]:
-        for tf in cfg["timeframes"]:
-            item = {
-                "symbol": sym,
-                "tf": tf,
-                "price": prices.get(sym),
-                "price_txt": fmt_price(prices.get(sym)),
-                "url": f"{CHART_URL}?symbol={sym}&tf={tf}",
-                "error": None,
-                "last_signal": None,
-                "forming": None,
-                "bars": None,
-                "last_bar_wib": None,
-            }
+    jobs = [(sym, tf) for sym in cfg["symbols"] for tf in cfg["timeframes"]]
+    sensitivity = cfg.get("sensitivity") or "medium"
+    found = {}
+    if not jobs:
+        return []
+    with ThreadPoolExecutor(max_workers=min(8, len(jobs))) as ex:
+        futs = {ex.submit(_one_market, sym, tf, prices, sensitivity): (sym, tf) for sym, tf in jobs}
+        for fut in as_completed(futs, timeout=180):
+            sym, tf = futs[fut]
             try:
-                candles = klines(sym, tf, 1000)
-                # drop the still-forming last candle for price of last close,
-                # but detect_swing_signals wants the live bar too (it handles forming).
-                if candles:
-                    item["bars"] = len(candles)
-                    item["last_bar_wib"] = wib_from_sec(candles[-1]["time"])
-                    # prefer last closed close if last bar is still open
-                    last_closed = candles[-2] if len(candles) >= 2 else candles[-1]
-                    # klines from REST include the in-progress candle as the last row
-                    if sym not in prices:
-                        item["price"] = last_closed["close"]
-                        item["price_txt"] = fmt_price(last_closed["close"])
-                pack = detect_swing_signals(candles, tf, cfg.get("sensitivity") or "medium", True)
-                sigs = pack.get("signals") or []
-                item["last_signal"] = pack_signal(sigs[-1] if sigs else None)
-                item["forming"] = pack_signal(pack.get("provisional"))
+                found[(sym, tf)] = fut.result()
             except Exception as e:
-                item["error"] = repr(e)[:200]
-                log("swing", sym, tf, item["error"])
-            rows.append(item)
+                found[(sym, tf)] = {
+                    "symbol": sym, "tf": tf, "price": prices.get(sym),
+                    "price_txt": fmt_price(prices.get(sym)),
+                    "url": f"{CHART_URL}?symbol={sym}&tf={tf}",
+                    "error": repr(e)[:200], "last_signal": None, "forming": None,
+                    "bars": None, "last_bar_wib": None,
+                }
+                log("swing", sym, tf, repr(e)[:200])
+    return [found[job] for job in jobs if job in found]
+
+
+def load_jsonl_alerts() -> list:
+    """Confirmed alerts written by the bot for the forwarder routine."""
+    rows = []
+    try:
+        if not ALERTS_JSONL.exists():
+            return rows
+        for line in ALERTS_JSONL.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            detected = rec.get("detected_at_utc") or rec.get("candle_close_utc")
+            wib = None
+            try:
+                if detected:
+                    ts = detected.replace("Z", "+00:00")
+                    dt = datetime.fromisoformat(ts)
+                    wib = dt.astimezone(WIB).strftime("%Y-%m-%d %H:%M:%S Asia/Jakarta")
+            except Exception:
+                wib = detected
+            rows.append({
+                "wib": wib,
+                "symbol": rec.get("symbol"),
+                "tf": rec.get("timeframe") or rec.get("tf"),
+                "name": rec.get("side"),
+                "price": rec.get("price"),
+                "source": "jsonl",
+                "candle_close_utc": rec.get("candle_close_utc"),
+                "detected_at_utc": rec.get("detected_at_utc"),
+            })
+    except OSError as e:
+        log("alerts.jsonl read failed", repr(e)[:200])
     return rows
 
 
@@ -538,7 +594,7 @@ def build() -> dict:
     prices = ticker_prices(symbols)
     markets = build_markets(cfg, prices)
     adx_rows = scan_adx_readonly()
-    alerts = merge_alerts(load_saved_alerts(), loginfo.get("alerts") or [])
+    alerts = merge_alerts(load_saved_alerts(), (loginfo.get("alerts") or []) + load_jsonl_alerts())
     # attach chart urls
     for a in alerts:
         if a.get("symbol") and a.get("tf"):
