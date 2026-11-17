@@ -56,6 +56,7 @@ REST_BASES = [
     "https://fapi2.binance.com",
     "https://fapi3.binance.com",
     "https://fapi4.binance.com",
+    "https://www.binance.com",
 ]
 UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0.0.0"
 ADX_COINS = ["NEARUSDT", "INJUSDT", "RENDERUSDT", "FETUSDT", "ARBUSDT"]
@@ -464,7 +465,7 @@ def build_markets(cfg: dict, prices: dict) -> list:
     found = {}
     if not jobs:
         return []
-    with ThreadPoolExecutor(max_workers=min(8, len(jobs))) as ex:
+    with ThreadPoolExecutor(max_workers=min(12, len(jobs))) as ex:
         futs = {ex.submit(_one_market, sym, tf, prices, sensitivity): (sym, tf) for sym, tf in jobs}
         for fut in as_completed(futs, timeout=180):
             sym, tf = futs[fut]

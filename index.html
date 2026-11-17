@@ -127,7 +127,7 @@ body.mode-unconfirmed .chart-leg .legend-unconfirmed{display:inline-flex}
     <h2 id="paperclosedh2" style="margin-top:12px">Recent closed trades</h2>
     <div id="paperclosed"><div class="empty">No closed paper trades yet</div></div>
   </div>
-  <h2>Watched markets <small style="color:var(--mut);font-weight:400">20 mid-cap perps · 5m &amp; 15m</small></h2>
+  <h2>Watched markets <small id="watchcount" style="color:var(--mut);font-weight:400">30 mid-cap perps · 5m &amp; 15m</small></h2>
   <div class="grid" id="markets"><div class="empty">Loading markets…</div></div>
   <div class="card" style="margin-top:12px">
     <h2 id="alertsh2">Recent alerts · Confirmed</h2>
@@ -609,6 +609,9 @@ function render(d, live){
   document.querySelectorAll(".js-jump").forEach(btn=>{
     btn.onclick=()=>selectChart(btn.getAttribute("data-sym"), btn.getAttribute("data-tf")||"5m", true);
   });
+  const nCoins=(bot.symbols||[]).length || [...new Set((d.markets||[]).map(m=>m.symbol))].length;
+  const watch=$("watchcount");
+  if(watch) watch.textContent=(nCoins?nCoins+" mid-cap perps":"mid-cap perps")+" · 5m & 15m";
   renderChips(order.length?order:(bot.symbols||[]));
   if(!liveChart.symbol){
     const first=(order[0]||(bot.symbols||[])[0]);
