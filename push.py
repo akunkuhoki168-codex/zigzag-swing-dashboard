@@ -34,8 +34,11 @@ BOT_PIDF = BOT / "run" / "bot.pid"
 SUP_PIDF = BOT / "run" / "supervisor.pid"
 ADX_STATE = Path("/workspace/adx/state.json")  # read-only
 ALERTS_JSONL = BOT / "alerts.jsonl"
+ALERTS_UNCONFIRMED_JSONL = BOT / "alerts_unconfirmed.jsonl"
 PAPER_STATE = BOT / "paper_state.json"
 PAPER_TRADES = BOT / "paper_trades.jsonl"
+PAPER_STATE_UNCONF = BOT / "paper_state_unconfirmed.json"
+PAPER_TRADES_UNCONF = BOT / "paper_trades_unconfirmed.jsonl"
 
 HERE = Path(os.path.dirname(os.path.abspath(__file__)))
 STATE = HERE / "state"
@@ -345,7 +348,15 @@ def parse_log() -> dict:
             continue
         seen.add(key)
         out.append(a)
-    info["alerts"] = out[-80:]
+    confirmed, unconfirmed = [], []
+    for a in out:
+        name = str(a.get("name") or "")
+        if name.endswith("?") or "forming" in name.lower() or name in {"BUY?", "SELL?"}:
+            unconfirmed.append(a)
+        else:
+            confirmed.append(a)
+    info["alerts"] = confirmed[-80:]
+    info["alerts_unconfirmed"] = unconfirmed[-80:]
     return info
 
 
@@ -504,6 +515,47 @@ def load_jsonl_alerts() -> list:
     return rows
 
 
+def load_jsonl_alerts_unconfirmed() -> list:
+    """Unconfirmed BUY?/SELL? lines. Kept separate from alerts.jsonl."""
+    rows = []
+    try:
+        if not ALERTS_UNCONFIRMED_JSONL.exists():
+            return rows
+        for line in ALERTS_UNCONFIRMED_JSONL.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            detected = rec.get("detected_at_utc") or rec.get("candle_close_utc")
+            wib = None
+            try:
+                if detected:
+                    ts = detected.replace("Z", "+00:00")
+                    dt = datetime.fromisoformat(ts)
+                    wib = dt.astimezone(WIB).strftime("%Y-%m-%d %H:%M:%S Asia/Jakarta")
+            except Exception:
+                wib = detected
+            rows.append({
+                "wib": wib,
+                "symbol": rec.get("symbol"),
+                "tf": rec.get("timeframe") or rec.get("tf"),
+                "name": rec.get("side"),
+                "price": rec.get("price"),
+                "pivot_price": rec.get("pivot_price"),
+                "pivot_time": rec.get("pivot_time"),
+                "source": "jsonl_unconfirmed",
+                "candle_close_utc": rec.get("candle_close_utc"),
+                "detected_at_utc": rec.get("detected_at_utc"),
+                "unconfirmed": True,
+            })
+    except OSError as e:
+        log("alerts_unconfirmed.jsonl read failed", repr(e)[:200])
+    return rows
+
+
 def wilder(x, n):
     out = [None] * len(x)
     s = sum(x[1:n + 1])
@@ -593,12 +645,13 @@ def scan_adx_readonly() -> list:
 
 
 
-def load_closed_paper_trades(limit: int = 40) -> list:
+def load_closed_paper_trades(limit: int = 40, path: Path | None = None) -> list:
     rows = []
+    trades_path = path or PAPER_TRADES
     try:
-        if not PAPER_TRADES.exists():
+        if not trades_path.exists():
             return rows
-        for line in PAPER_TRADES.read_text(encoding="utf-8").splitlines():
+        for line in trades_path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line:
                 continue
@@ -618,9 +671,21 @@ def load_closed_paper_trades(limit: int = 40) -> list:
     return rows[-limit:]
 
 
-def build_paper(prices: dict) -> dict:
+CONFIRMED_PAPER_NOTE = (
+    "Paper only — no real orders or API keys. $50 notional at 1x, 0.05% taker fee per side, "
+    "fill at the confirmation candle close."
+)
+UNCONFIRMED_PAPER_NOTE = (
+    "Paper only — no real orders or API keys. $50 notional at 1x, 0.05% taker fee per side. "
+    "Enters at the close of the candle when a new unconfirmed BUY?/SELL? first appears; "
+    "exits or flips on an opposite unconfirmed signal, or exits as 'repainted' if that signal disappears."
+)
+
+
+def build_paper(prices: dict, state_path: Path | None = None, trades_path: Path | None = None, note: str | None = None, mode: str = "confirmed") -> dict:
+    path = state_path or PAPER_STATE
     try:
-        st = json.loads(PAPER_STATE.read_text(encoding="utf-8"))
+        st = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         st = {
             "starting_balance": 1000.0, "balance": 1000.0, "realized_pnl": 0.0,
@@ -661,7 +726,7 @@ def build_paper(prices: dict) -> dict:
     closed = int(st.get("closed_count") or 0)
     wins = int(st.get("win_count") or 0)
     starting = float(st.get("starting_balance") or 1000)
-    closed_trades = list(reversed(load_closed_paper_trades(40)))
+    closed_trades = list(reversed(load_closed_paper_trades(40, path=trades_path or PAPER_TRADES)))
     return {
         "starting_balance": starting,
         "balance": round(wallet, 4),
@@ -679,7 +744,8 @@ def build_paper(prices: dict) -> dict:
         "positions": positions,
         "closed_trades": closed_trades,
         "updated_wib": st.get("updated_wib"),
-        "note": "Paper only — no real orders or API keys. $50 notional at 1x, 0.05% taker fee per side, fill at the confirmation candle close.",
+        "mode": mode,
+        "note": note or (UNCONFIRMED_PAPER_NOTE if mode == "unconfirmed" else CONFIRMED_PAPER_NOTE),
     }
 
 
@@ -692,11 +758,22 @@ def build() -> dict:
     markets = build_markets(cfg, prices)
     adx_rows = scan_adx_readonly()
     alerts = merge_alerts(load_saved_alerts(), (loginfo.get("alerts") or []) + load_jsonl_alerts())
+    # never let unconfirmed (BUY?/SELL?) rows mix into the confirmed list or alerts.json
+    alerts = [a for a in alerts if not str(a.get("name") or "").endswith("?")]
     # attach chart urls
     for a in alerts:
         if a.get("symbol") and a.get("tf"):
             a["url"] = f"{CHART_URL}?symbol={a['symbol']}&tf={a['tf']}"
     save_alerts(alerts)
+
+    alerts_unconfirmed = merge_alerts(
+        [],
+        (loginfo.get("alerts_unconfirmed") or []) + load_jsonl_alerts_unconfirmed(),
+    )
+    for a in alerts_unconfirmed:
+        a["unconfirmed"] = True
+        if a.get("symbol") and a.get("tf"):
+            a["url"] = f"{CHART_URL}?symbol={a['symbol']}&tf={a['tf']}"
 
     alive = runtime["alive"]
     heartbeat = loginfo.get("heartbeat_wib") or loginfo.get("last_line_wib") or now_wib()
@@ -722,7 +799,10 @@ def build() -> dict:
     except Exception:
         pass
 
-    paper = build_paper(prices)
+    paper = build_paper(prices, PAPER_STATE, PAPER_TRADES, CONFIRMED_PAPER_NOTE, "confirmed")
+    paper_unconfirmed = build_paper(
+        prices, PAPER_STATE_UNCONF, PAPER_TRADES_UNCONF, UNCONFIRMED_PAPER_NOTE, "unconfirmed",
+    )
 
     return {
         "generated_at": now_wib(),
@@ -750,7 +830,9 @@ def build() -> dict:
         },
         "markets": markets,
         "paper": paper,
+        "paper_unconfirmed": paper_unconfirmed,
         "alerts": list(reversed(alerts[-60:])),
+        "alerts_unconfirmed": list(reversed(alerts_unconfirmed[-60:])),
         "adx": {
             "tf": ADX_TF,
             "period": ADX_N,

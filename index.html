@@ -69,6 +69,12 @@ td:not(:first-child),th:not(:first-child){text-align:right}
 .dotk{width:8px;height:8px;border-radius:50%;display:inline-block}
 .ext{color:var(--mut);font-size:11px;font-weight:500;margin-left:8px;text-decoration:none}
 #chartmeta{color:var(--mut);font-size:12px;margin:0 0 6px}
+#modetoggle{flex-wrap:wrap}
+#modetoggle button{white-space:nowrap}
+#modeexplain{margin-top:8px}
+.legend-unconfirmed{display:none}
+body.mode-unconfirmed .legend-confirmed{display:none}
+body.mode-unconfirmed .legend-unconfirmed{display:inline-flex}
 </style>
 </head>
 <body>
@@ -77,6 +83,14 @@ td:not(:first-child),th:not(:first-child){text-align:right}
   <div id="badge" class="badge load"><span class="dot"></span><span id="btxt">Loading…</span><span class="sub" id="bsub"></span></div>
   <div class="card">
     <div class="meta" id="botmeta">Waiting for data…</div>
+  </div>
+  <div class="card" id="modecard">
+    <h2 style="margin:0 0 8px">Signals</h2>
+    <div class="seg" id="modetoggle">
+      <button type="button" data-mode="confirmed" class="on">Confirmed</button>
+      <button type="button" data-mode="unconfirmed">Unconfirmed (repaints)</button>
+    </div>
+    <div class="meta" id="modeexplain">Pivot confirmed after the k×ATR reversal; final, non-repainting.</div>
   </div>
   <div class="card" id="chartcard">
     <div class="chart-head">
@@ -90,15 +104,15 @@ td:not(:first-child),th:not(:first-child){text-align:right}
     <div id="chartmeta">Loading candles…</div>
     <div id="chartbox"></div>
     <div class="chart-leg">
-      <span><i class="dotk" style="background:#22c55e"></i>BUY pivot</span>
-      <span><i class="dotk" style="background:#ef4444"></i>SELL pivot</span>
-      <span><i class="dotk" style="background:#f59e0b"></i>Forming</span>
+      <span class="legend-confirmed"><i class="dotk" style="background:#22c55e"></i>BUY pivot</span>
+      <span class="legend-confirmed"><i class="dotk" style="background:#ef4444"></i>SELL pivot</span>
+      <span class="legend-unconfirmed"><i class="dotk" style="background:#f59e0b"></i>BUY? / SELL?</span>
       <span><i class="dotk" style="background:#3b82f6"></i>Paper IN / OUT</span>
       <span>Times in WIB · USD-M Futures</span>
     </div>
   </div>
   <div class="card">
-    <h2>Paper trading <span class="side none" style="margin-left:6px">SIMULATED</span></h2>
+    <h2 id="paperh2">Paper trading · Confirmed <span class="side none" style="margin-left:6px">SIMULATED</span></h2>
     <div class="meta" id="papernote" style="margin-bottom:8px">$1,000 start · $50 notional · 1x · 0.05% taker fee · fill at confirmation close</div>
     <div class="grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:8px" id="papermetrics">
       <div class="mkt"><div class="k">Balance</div><div class="px" id="p_bal">–</div></div>
@@ -116,7 +130,7 @@ td:not(:first-child),th:not(:first-child){text-align:right}
   <h2>Watched markets <small style="color:var(--mut);font-weight:400">20 mid-cap perps · 5m &amp; 15m</small></h2>
   <div class="grid" id="markets"><div class="empty">Loading markets…</div></div>
   <div class="card" style="margin-top:12px">
-    <h2>Recent alerts</h2>
+    <h2 id="alertsh2">Recent alerts · Confirmed</h2>
     <div id="alerts"><div class="empty">Loading…</div></div>
   </div>
   <div class="card">
@@ -136,6 +150,39 @@ const REST_BASES = ["https://fapi.binance.com","https://fapi1.binance.com","http
 const WS_HOST = "wss://fstream.binance.com";
 const INTERVAL_SEC = { "5m": 300, "15m": 900 };
 function $(id){return document.getElementById(id)}
+const MODE_KEY="adx-swing:signalMode";
+function loadMode(){
+  try{
+    const v=localStorage.getItem(MODE_KEY);
+    if(v==="unconfirmed"||v==="confirmed") return v;
+  }catch(e){}
+  return "confirmed";
+}
+let signalMode=loadMode();
+let lastLive={};
+function isUnconfirmed(){ return signalMode==="unconfirmed"; }
+function applyModeChrome(){
+  document.body.classList.toggle("mode-unconfirmed", isUnconfirmed());
+  document.querySelectorAll("#modetoggle button").forEach(b=>{
+    b.classList.toggle("on", b.getAttribute("data-mode")===signalMode);
+  });
+  const ex=$("modeexplain");
+  if(ex) ex.textContent=isUnconfirmed()
+    ?"The forming BUY?/SELL? pivot; earlier, but can repaint or disappear."
+    :"Pivot confirmed after the k×ATR reversal; final, non-repainting.";
+  const ph=$("paperh2");
+  if(ph) ph.innerHTML=isUnconfirmed()
+    ?'Paper trading · Unconfirmed (repaints) <span class="side none" style="margin-left:6px">SIMULATED</span>'
+    :'Paper trading · Confirmed <span class="side none" style="margin-left:6px">SIMULATED</span>';
+  const ah=$("alertsh2");
+  if(ah) ah.textContent=isUnconfirmed()?"Recent alerts · Unconfirmed (repaints)":"Recent alerts · Confirmed";
+}
+function setSignalMode(mode){
+  signalMode=mode==="unconfirmed"?"unconfirmed":"confirmed";
+  try{ localStorage.setItem(MODE_KEY, signalMode); }catch(e){}
+  applyModeChrome();
+  if(lastData) render(lastData, lastLive||{});
+}
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
 function sideClass(name){
   const n=(name||"").toUpperCase();
@@ -251,26 +298,36 @@ function collectMarkers(symbol, tf, candles, data){
     out.push({time:t, ...obj});
   };
   const mkt=((data&&data.markets)||[]).find(m=>m.symbol===symbol && m.tf===tf);
-  for(const s of (mkt&&mkt.recent_signals)||[]){
-    const buy=/BUY/.test(s.name||"");
-    add(s.time, {position:buy?"belowBar":"aboveBar", color:buy?"#22c55e":"#ef4444", shape:buy?"arrowUp":"arrowDown", text:s.name||""});
+  const unconf=isUnconfirmed();
+  if(!unconf){
+    for(const s of (mkt&&mkt.recent_signals)||[]){
+      const buy=/BUY/.test(s.name||"");
+      add(s.time, {position:buy?"belowBar":"aboveBar", color:buy?"#22c55e":"#ef4444", shape:buy?"arrowUp":"arrowDown", text:s.name||""});
+    }
+    if(mkt&&mkt.last_signal&&!(mkt.recent_signals||[]).length){
+      const s=mkt.last_signal;
+      const buy=/BUY/.test(s.name||"");
+      add(s.time || wibToSec(s.pivot_wib), {position:buy?"belowBar":"aboveBar", color:buy?"#22c55e":"#ef4444", shape:buy?"arrowUp":"arrowDown", text:s.name||""});
+    }
+    for(const a of (data&&data.alerts)||[]){
+      if(a.symbol!==symbol || (a.tf||a.timeframe)!==tf) continue;
+      if(!/^(BUY|SELL)$/.test(a.name||a.side||"")) continue;
+      const buy=(a.name||a.side)==="BUY";
+      add(utcToSec(a.candle_close_utc) || wibToSec(a.wib), {position:buy?"belowBar":"aboveBar", color:buy?"#22c55e":"#ef4444", shape:buy?"arrowUp":"arrowDown", text:a.name||a.side});
+    }
+  } else {
+    if(mkt&&mkt.forming){
+      const s=mkt.forming;
+      add(s.time || wibToSec(s.pivot_wib), {position:/BUY/.test(s.name||"")?"belowBar":"aboveBar", color:"#f59e0b", shape:"circle", text:s.name||"?"});
+    }
+    for(const a of (data&&data.alerts_unconfirmed)||[]){
+      if(a.symbol!==symbol || (a.tf||a.timeframe)!==tf) continue;
+      const nm=a.name||a.side||"";
+      const buy=/BUY/.test(nm);
+      add(a.pivot_time || utcToSec(a.candle_close_utc) || wibToSec(a.wib), {position:buy?"belowBar":"aboveBar", color:"#f59e0b", shape:"circle", text:nm||"?"});
+    }
   }
-  if(mkt&&mkt.last_signal&&!(mkt.recent_signals||[]).length){
-    const s=mkt.last_signal;
-    const buy=/BUY/.test(s.name||"");
-    add(s.time || wibToSec(s.pivot_wib), {position:buy?"belowBar":"aboveBar", color:buy?"#22c55e":"#ef4444", shape:buy?"arrowUp":"arrowDown", text:s.name||""});
-  }
-  if(mkt&&mkt.forming){
-    const s=mkt.forming;
-    add(s.time || wibToSec(s.pivot_wib), {position:/BUY/.test(s.name||"")?"belowBar":"aboveBar", color:"#f59e0b", shape:"circle", text:s.name||"?"});
-  }
-  for(const a of (data&&data.alerts)||[]){
-    if(a.symbol!==symbol || (a.tf||a.timeframe)!==tf) continue;
-    if(!/^(BUY|SELL)$/.test(a.name||a.side||"")) continue;
-    const buy=(a.name||a.side)==="BUY";
-    add(utcToSec(a.candle_close_utc) || wibToSec(a.wib), {position:buy?"belowBar":"aboveBar", color:buy?"#22c55e":"#ef4444", shape:buy?"arrowUp":"arrowDown", text:a.name||a.side});
-  }
-  const paper=(data&&data.paper)||{};
+  const paper=unconf?((data&&data.paper_unconfirmed)||{}):((data&&data.paper)||{});
   for(const p of paper.positions||[]){
     if(p.symbol!==symbol || p.timeframe!==tf) continue;
     add(wibToSec(p.opened_at_wib) || utcToSec(p.opened_at_utc), {position:p.side==="LONG"?"belowBar":"aboveBar", color:"#3b82f6", shape:"square", text:"IN"});
@@ -386,6 +443,12 @@ function selectChart(symbol, tf, scroll){
   if(changed || !liveChart.ready) loadCandles(symbol, nextTf);
   if(scroll) $("chartcard").scrollIntoView({behavior:"smooth",block:"start"});
 }
+$("modetoggle").addEventListener("click", ev=>{
+  const b=ev.target.closest("button[data-mode]");
+  if(!b) return;
+  setSignalMode(b.getAttribute("data-mode"));
+});
+applyModeChrome();
 $("tftoggle").addEventListener("click", ev=>{
   const b=ev.target.closest("button[data-tf]");
   if(!b) return;
@@ -393,6 +456,7 @@ $("tftoggle").addEventListener("click", ev=>{
 });
 
 function render(d, live){
+  applyModeChrome();
   const bot=d.bot||{};
   const badge=$("badge"), btxt=$("btxt"), bsub=$("bsub");
   badge.className="badge "+(bot.alive? (bot.stale?"stale":"live") : "down");
@@ -410,7 +474,7 @@ function render(d, live){
   ].filter(Boolean);
   $("botmeta").innerHTML=bits.map(esc).join(" · ");
 
-  const paper=d.paper||{};
+  const paper=isUnconfirmed()?((d.paper_unconfirmed)||{}):((d.paper)||{});
   const money=(n,sign)=>{
     if(n==null||n==="") return "–";
     const x=Number(n);
@@ -433,11 +497,13 @@ function render(d, live){
       <div class="det">entry ${esc(p.entry_txt||p.entry)} · mark ${esc(live[p.symbol]||p.mark_txt||p.mark)} · opened ${esc(fullTime(p.opened_at_wib))}</div>
     </div>`).join("");
   const ct=paper.closed_trades||[];
-  if(!ct.length) $("paperclosed").innerHTML=`<div class="empty">No closed paper trades yet. Positions open only on new confirmed signals after the bot starts — historic swings are not back-filled.</div>`;
+  if(!ct.length) $("paperclosed").innerHTML=isUnconfirmed()
+      ?`<div class="empty">No closed unconfirmed paper trades yet. Positions open only when a new unconfirmed BUY?/SELL? appears after the bot starts — historic swings are not back-filled.</div>`
+      :`<div class="empty">No closed paper trades yet. Positions open only on new confirmed signals after the bot starts — historic swings are not back-filled.</div>`;
   else $("paperclosed").innerHTML=ct.map(t=>`<div class="it">
       <div class="top"><button type="button" class="sym js-jump" data-sym="${esc(t.symbol)}" data-tf="${esc(t.timeframe)}">${esc(t.symbol)} <span class="tf">${esc(t.timeframe)}</span></button>${pill(t.side)}
         <span class="${pnlClass(t.pnl)}">${esc(t.pnl_txt||money(t.pnl,true))}</span></div>
-      <div class="det">${esc(fullTime(t.at_wib))} · entry ${esc(t.entry_txt||t.entry)} → exit ${esc(t.exit_txt||t.exit)}${t.win?" · win":" · loss"}</div>
+      <div class="det">${esc(fullTime(t.at_wib))} · entry ${esc(t.entry_txt||t.entry)} → exit ${esc(t.exit_txt||t.exit)}${t.reason==="repainted"?" · repainted":(t.reason?" · "+esc(t.reason):"")}${t.win?" · win":" · loss"}</div>
     </div>`).join("");
 
   const mkts=d.markets||[];
@@ -465,9 +531,11 @@ function render(d, live){
     }).join("");
   }
 
-  const alerts=d.alerts||[];
+  const alerts=isUnconfirmed()?(d.alerts_unconfirmed||[]):(d.alerts||[]);
   if(!alerts.length){
-    $("alerts").innerHTML=`<div class="empty">No new alerts since the bot started${bot.started_wib?" at "+fullTime(bot.started_wib):""}. Last confirmed pivots are on the market cards above.</div>`;
+    $("alerts").innerHTML=isUnconfirmed()
+      ?`<div class="empty">No new unconfirmed BUY?/SELL? alerts since the bot started${bot.started_wib?" at "+fullTime(bot.started_wib):""}. Forming pivots are on the market cards above.</div>`
+      :`<div class="empty">No new alerts since the bot started${bot.started_wib?" at "+fullTime(bot.started_wib):""}. Last confirmed pivots are on the market cards above.</div>`;
   } else {
     $("alerts").innerHTML=alerts.map(a=>`<div class="it">
       <div class="top"><button type="button" class="sym js-jump" data-sym="${esc(a.symbol)}" data-tf="${esc(a.tf)}">${esc(a.symbol)} <span class="tf">${esc(a.tf)}</span></button>${pill(a.name)}</div>
@@ -513,6 +581,7 @@ async function load(){
     lastData=await r.json();
     const symbols=[...new Set((lastData.markets||[]).map(m=>m.symbol).concat(((lastData.adx||{}).rows)||[]).map(x=>x.symbol).filter(Boolean))];
     const live=await livePrices(symbols);
+    lastLive=live;
     render(lastData, live);
   }catch(e){
     $("badge").className="badge stale";
