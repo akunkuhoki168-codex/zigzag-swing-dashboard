@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b0f14">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>ADX Swing</title>
+<title>Zigzag Swing</title>
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 if (typeof LightweightCharts === "undefined") {
@@ -79,7 +79,7 @@ body.mode-unconfirmed .chart-leg .legend-unconfirmed{display:inline-flex}
 </head>
 <body>
 <div class="wrap">
-  <h1>ADX Swing <small>Alert-only · Binance USD-M Futures · times in WIB (UTC+7)</small></h1>
+  <h1>Zigzag Swing <small>Alert-only · Binance USD-M Futures · times in WIB (UTC+7)</small></h1>
   <div id="badge" class="badge load"><span class="dot"></span><span id="btxt">Loading…</span><span class="sub" id="bsub"></span></div>
   <div class="card">
     <div class="meta" id="botmeta">Waiting for data…</div>
@@ -140,12 +140,12 @@ body.mode-unconfirmed .chart-leg .legend-unconfirmed{display:inline-flex}
   </div>
   <footer>
     Alerts only — no orders are placed. Not financial advice.<br>
-    <a href="https://dedkovic441-hub.github.io/adx-swing/">Open the full-page chart</a>
+    <a href="https://dedkovic441-hub.github.io/zigzag-swing/">Open the full-page chart</a>
     · page refreshes every 30s
   </footer>
 </div>
 <script>
-const CHART = "https://dedkovic441-hub.github.io/adx-swing/";
+const CHART = "https://dedkovic441-hub.github.io/zigzag-swing/";
 const REST_BASES = ["https://fapi.binance.com","https://fapi1.binance.com","https://fapi2.binance.com","https://fapi3.binance.com","https://fapi4.binance.com"];
 const WS_HOST = "wss://fstream.binance.com";
 const INTERVAL_SEC = { "5m": 300, "15m": 900 };

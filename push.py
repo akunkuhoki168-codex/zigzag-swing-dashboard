@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Publisher for the public ADX Swing alert dashboard (GitHub Pages).
+"""Publisher for the public Zigzag Swing alert dashboard (GitHub Pages).
 
-Reads the ADX Swing bot log/state in /workspace/adx-swing-bot, recomputes
+Reads the Zigzag Swing bot log/state in /workspace/adx-swing-bot, recomputes
 current zigzag swing state from Binance USD-M Futures public klines, and
 runs a read-only copy of the 1-minute ADX scanner. Never writes
 /workspace/adx/state.json (that file belongs to the alert routine).
@@ -49,7 +49,7 @@ PUSH_EVERY_S = 120
 DATA_MSG = "data snapshot"
 PUSHER_NAME = "adx-swing-pusher"
 PUSHER_EMAIL = "pusher@users.noreply.github.com"
-CHART_URL = "https://dedkovic441-hub.github.io/adx-swing/"
+CHART_URL = "https://dedkovic441-hub.github.io/zigzag-swing/"
 REST_BASES = [
     "https://fapi.binance.com",
     "https://fapi1.binance.com",
@@ -860,7 +860,7 @@ def build() -> dict:
         "generated_at": now_wib(),
         "generated_ts": int(time.time()),
         "bot": {
-            "name": "ADX Swing",
+            "name": "Zigzag Swing",
             "market": "Binance USD-M Futures",
             "alive": alive,
             "stale": stale and not alive,
