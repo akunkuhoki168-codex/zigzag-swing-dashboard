@@ -916,25 +916,256 @@ def is_data_commit(rev: str) -> bool:
     return git("log", "-1", "--format=%s%x1f%an", rev) == f"{DATA_MSG}\x1f{PUSHER_NAME}"
 
 
-def commit(msg: str, path: str) -> None:
-    git("add", path)
+def commit(msg: str, *paths: str) -> None:
+    if not paths:
+        raise ValueError("commit requires at least one path")
+    git("add", *paths)
     git("-c", f"user.name={PUSHER_NAME}", "-c", f"user.email={PUSHER_EMAIL}",
-        "commit", "-q", "--allow-empty", "-m", msg, "--", path)
+        "commit", "-q", "--allow-empty", "-m", msg, "--", *paths)
+
+
+DATA_PATHS = ("data.json", "data_detail.json")
 
 
 def push_data(R: str) -> None:
     base = git("rev-parse", f"{R}~1") if is_data_commit(R) else R
     git("reset", "-q", "--mixed", base)
-    commit(DATA_MSG, "data.json")
+    commit(DATA_MSG, *DATA_PATHS)
     git("push", "-q", f"--force-with-lease=refs/heads/main:{R}", "origin", "HEAD:main")
+
+
+def _short_wib(value):
+    if not value:
+        return None
+    return str(value).replace(" Asia/Jakarta", "").replace(" WIB", "")
+
+
+def _num(value, places: int = 8):
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, int):
+        return value
+    if not isinstance(value, float):
+        return value
+    if value != value or value in (float("inf"), float("-inf")):
+        return value
+    rounded = round(float(value), places)
+    if rounded == int(rounded) and abs(rounded) < 1e12:
+        return int(rounded)
+    return rounded
+
+
+def slim_signal(sig: dict | None, *, with_wib: bool = False) -> dict | None:
+    if not sig:
+        return None
+    out = {}
+    for key in ("name", "price", "kind", "time", "confirm_time", "lag", "stars"):
+        if sig.get(key) is not None:
+            out[key] = _num(sig[key]) if key == "price" else sig[key]
+    if sig.get("forming"):
+        out["forming"] = True
+    if with_wib:
+        pivot = _short_wib(sig.get("pivot_wib"))
+        confirm = _short_wib(sig.get("confirm_wib"))
+        if pivot:
+            out["pivot_wib"] = pivot
+        if confirm:
+            out["confirm_wib"] = confirm
+    return out
+
+
+def slim_market(m: dict, *, include_recent: bool) -> dict:
+    item = {
+        "symbol": m.get("symbol"),
+        "tf": m.get("tf"),
+        "price": _num(m.get("price")),
+    }
+    last = slim_signal(m.get("last_signal"), with_wib=True)
+    forming = slim_signal(m.get("forming"), with_wib=True)
+    if last:
+        item["last_signal"] = last
+    if forming:
+        item["forming"] = forming
+    if m.get("error"):
+        item["error"] = m.get("error")
+    bar_wib = _short_wib(m.get("last_bar_wib"))
+    if bar_wib:
+        item["last_bar_wib"] = bar_wib
+    if include_recent:
+        item["recent_signals"] = [
+            slim_signal(s) for s in (m.get("recent_signals") or []) if s
+        ]
+    return item
+
+
+def slim_leg(leg: dict) -> dict:
+    out = {}
+    for key in ("price", "qty", "notional"):
+        if leg.get(key) is not None:
+            out[key] = _num(leg[key])
+    wib = _short_wib(leg.get("opened_at_wib"))
+    if wib:
+        out["opened_at_wib"] = wib
+    if leg.get("opened_at_utc"):
+        out["opened_at_utc"] = leg["opened_at_utc"]
+    return out
+
+
+def slim_position(p: dict) -> dict:
+    out = {}
+    keep = (
+        "symbol", "timeframe", "side", "qty", "entry", "avg_entry", "mark",
+        "margin", "notional", "first_notional", "leg_count", "faded",
+        "fade_count", "unrealized",
+    )
+    for key in keep:
+        if p.get(key) is not None:
+            out[key] = _num(p[key]) if key not in ("symbol", "timeframe", "side", "faded") else p[key]
+    if p.get("opened_at_wib"):
+        out["opened_at_wib"] = _short_wib(p.get("opened_at_wib"))
+    if p.get("opened_at_utc"):
+        out["opened_at_utc"] = p["opened_at_utc"]
+    if p.get("last_fade_wib"):
+        out["last_fade_wib"] = _short_wib(p.get("last_fade_wib"))
+    if p.get("legs"):
+        out["legs"] = [slim_leg(leg) for leg in p["legs"]]
+    return out
+
+
+_TRADE_DROP = {
+    "entry_txt", "exit_txt", "price_txt", "pnl_txt", "url",
+}
+
+
+def slim_trade(t: dict) -> dict:
+    out = {}
+    for key, value in t.items():
+        if key in _TRADE_DROP or value is None:
+            continue
+        if isinstance(value, str) and (key.endswith("_wib") or "Asia/Jakarta" in value):
+            value = _short_wib(value)
+        elif isinstance(value, float):
+            value = _num(value)
+        out[key] = value
+    return out
+
+
+_ALERT_DROP = {"url", "source"}
+
+
+def slim_alert(a: dict, *, light: bool = False) -> dict:
+    out = {}
+    drop = set(_ALERT_DROP)
+    if light:
+        drop.update({"candle_close_utc", "detected_at_utc", "unconfirmed"})
+    for key, value in a.items():
+        if key in drop or value is None:
+            continue
+        if isinstance(value, str) and (key.endswith("_wib") or "Asia/Jakarta" in value):
+            value = _short_wib(value)
+        elif isinstance(value, float):
+            value = _num(value)
+        out[key] = value
+    return out
+
+
+def slim_paper(p: dict, *, trade_limit: int | None = None, event_limit: int | None = None) -> dict:
+    out = {}
+    skip = {"positions", "closed_trades", "events"}
+    for key, value in p.items():
+        if key in skip:
+            continue
+        if key.endswith("_wib"):
+            out[key] = _short_wib(value)
+        elif isinstance(value, float):
+            out[key] = _num(value, 4)
+        else:
+            out[key] = value
+    out["positions"] = [slim_position(x) for x in (p.get("positions") or [])]
+    trades = [slim_trade(x) for x in (p.get("closed_trades") or [])]
+    events = [slim_trade(x) for x in (p.get("events") or [])]
+    if trade_limit is not None:
+        trades = trades[:trade_limit]
+    if event_limit is not None:
+        events = events[:event_limit]
+    out["closed_trades"] = trades
+    # Confirmed mode copies events from closed trades; skip the duplicate in the light file.
+    if p.get("mode") == "confirmed" and event_limit is not None:
+        out["events"] = []
+    else:
+        out["events"] = events
+    return out
+
+
+def slim_adx(adx: dict) -> dict:
+    rows = []
+    for r in (adx.get("rows") or []):
+        row = {}
+        for key, value in r.items():
+            if key in {"url", "price_txt"} or value is None:
+                continue
+            if isinstance(value, str) and "Asia/Jakarta" in value:
+                value = _short_wib(value)
+            elif isinstance(value, float):
+                value = _num(value)
+            row[key] = value
+        rows.append(row)
+    out = {k: v for k, v in adx.items() if k != "rows"}
+    out["rows"] = rows
+    return out
+
+
+def slim_bot(bot: dict) -> dict:
+    out = dict(bot)
+    for key in ("heartbeat_wib", "last_closed_wib", "started_wib", "state_updated"):
+        if out.get(key):
+            out[key] = _short_wib(out[key]) if " " in str(out[key]) else out[key]
+    return out
+
+
+SUMMARY_ALERTS = 20
+SUMMARY_TRADES = 15
+SUMMARY_EVENTS = 20
+
+
+def split_payload(d: dict) -> tuple[dict, dict]:
+    """Compact first-paint summary plus a lazily loaded detail file."""
+    summary = {
+        "generated_at": _short_wib(d.get("generated_at")) or d.get("generated_at"),
+        "generated_ts": d.get("generated_ts"),
+        "bot": slim_bot(d.get("bot") or {}),
+        "markets": [slim_market(m, include_recent=False) for m in (d.get("markets") or [])],
+        "paper": slim_paper(d.get("paper") or {}, trade_limit=SUMMARY_TRADES, event_limit=SUMMARY_EVENTS),
+        "paper_unconfirmed": slim_paper(
+            d.get("paper_unconfirmed") or {}, trade_limit=SUMMARY_TRADES, event_limit=SUMMARY_EVENTS,
+        ),
+        "alerts": [slim_alert(a, light=True) for a in (d.get("alerts") or [])[:SUMMARY_ALERTS]],
+        "alerts_unconfirmed": [slim_alert(a, light=True) for a in (d.get("alerts_unconfirmed") or [])[:SUMMARY_ALERTS]],
+        "adx": slim_adx(d.get("adx") or {}),
+    }
+    detail = {
+        "generated_ts": d.get("generated_ts"),
+        "markets": [slim_market(m, include_recent=True) for m in (d.get("markets") or [])],
+        "paper": slim_paper(d.get("paper") or {}),
+        "paper_unconfirmed": slim_paper(d.get("paper_unconfirmed") or {}),
+        "alerts": [slim_alert(a) for a in (d.get("alerts") or [])],
+        "alerts_unconfirmed": [slim_alert(a) for a in (d.get("alerts_unconfirmed") or [])],
+    }
+    return summary, detail
+
+
+def _atomic_json(path: Path, obj: dict) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w") as fh:
+        json.dump(obj, fh, separators=(",", ":"))
+    os.replace(tmp, path)
 
 
 def write_data() -> dict:
     d = build()
-    tmp = HERE / "data.json.tmp"
-    with open(tmp, "w") as fh:
-        json.dump(d, fh, separators=(",", ":"))
-    os.replace(tmp, HERE / "data.json")
+    summary, detail = split_payload(d)
+    _atomic_json(HERE / "data.json", summary)
+    _atomic_json(HERE / "data_detail.json", detail)
     return d
 
 
@@ -972,18 +1203,20 @@ def main() -> None:
                 changed = digest != last_hash()
                 alive = d["bot"]["alive"]
                 n_alerts = len(d["alerts"])
+                data_bytes = (HERE / "data.json").stat().st_size
+                detail_bytes = (HERE / "data_detail.json").stat().st_size
                 adx_new = sum(1 for r in d["adx"]["rows"] if r.get("new_alert"))
                 if not changed:
                     last_push = time.time()
                     fails = 0
-                    log(f"unchanged alive={alive} mode={d['bot']['mode']} alerts={n_alerts} adx_new={adx_new}")
+                    log(f"unchanged alive={alive} mode={d['bot']['mode']} alerts={n_alerts} adx_new={adx_new} data={data_bytes} detail={detail_bytes}")
                 else:
                     if not nopush:
                         push_data(R)
                     save_hash(digest)
                     last_push = time.time()
                     fails = 0
-                    log(f"pushed alive={alive} mode={d['bot']['mode']} alerts={n_alerts} adx_new={adx_new}")
+                    log(f"pushed alive={alive} mode={d['bot']['mode']} alerts={n_alerts} adx_new={adx_new} data={data_bytes} detail={detail_bytes}")
         except Exception as e:
             fails += 1
             last_push = time.time() - PUSH_EVERY_S + 30 * min(fails, 4)
