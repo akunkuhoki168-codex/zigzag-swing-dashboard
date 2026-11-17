@@ -398,6 +398,8 @@ def pack_signal(sig: dict | None) -> dict | None:
         "price": sig.get("price"),
         "price_txt": fmt_price(sig.get("price")),
         "kind": sig.get("swingKind"),
+        "time": int(sig["time"]) if sig.get("time") is not None else None,
+        "confirm_time": None if sig.get("provisional") else (int(sig["confirmTime"]) if sig.get("confirmTime") is not None else None),
         "pivot_wib": wib_from_sec(sig.get("time")),
         "confirm_wib": wib_from_sec(sig.get("confirmTime")) if not sig.get("provisional") else None,
         "lag": sig.get("lag"),
@@ -416,6 +418,7 @@ def _one_market(sym: str, tf: str, prices: dict, sensitivity: str) -> dict:
         "error": None,
         "last_signal": None,
         "forming": None,
+        "recent_signals": [],
         "bars": None,
         "last_bar_wib": None,
     }
@@ -432,6 +435,7 @@ def _one_market(sym: str, tf: str, prices: dict, sensitivity: str) -> dict:
         sigs = pack.get("signals") or []
         item["last_signal"] = pack_signal(sigs[-1] if sigs else None)
         item["forming"] = pack_signal(pack.get("provisional"))
+        item["recent_signals"] = [pack_signal(s) for s in sigs[-20:]]
     except Exception as e:
         item["error"] = repr(e)[:200]
         log("swing", sym, tf, item["error"])
