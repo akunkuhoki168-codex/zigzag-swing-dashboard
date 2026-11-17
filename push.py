@@ -34,6 +34,8 @@ BOT_PIDF = BOT / "run" / "bot.pid"
 SUP_PIDF = BOT / "run" / "supervisor.pid"
 ADX_STATE = Path("/workspace/adx/state.json")  # read-only
 ALERTS_JSONL = BOT / "alerts.jsonl"
+PAPER_STATE = BOT / "paper_state.json"
+PAPER_TRADES = BOT / "paper_trades.jsonl"
 
 HERE = Path(os.path.dirname(os.path.abspath(__file__)))
 STATE = HERE / "state"
@@ -586,6 +588,97 @@ def scan_adx_readonly() -> list:
     return res
 
 
+
+def load_closed_paper_trades(limit: int = 40) -> list:
+    rows = []
+    try:
+        if not PAPER_TRADES.exists():
+            return rows
+        for line in PAPER_TRADES.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            if rec.get("action") != "CLOSE":
+                continue
+            rec["url"] = f"{CHART_URL}?symbol={rec.get('symbol')}&tf={rec.get('timeframe')}"
+            rec["entry_txt"] = fmt_price(rec.get("entry"))
+            rec["exit_txt"] = fmt_price(rec.get("exit"))
+            rec["pnl_txt"] = None if rec.get("pnl") is None else f"{rec['pnl']:+.4f}"
+            rows.append(rec)
+    except OSError as e:
+        log("paper_trades read failed", repr(e)[:200])
+    return rows[-limit:]
+
+
+def build_paper(prices: dict) -> dict:
+    try:
+        st = json.loads(PAPER_STATE.read_text(encoding="utf-8"))
+    except Exception:
+        st = {
+            "starting_balance": 1000.0, "balance": 1000.0, "realized_pnl": 0.0,
+            "fees_paid": 0.0, "notional": 50.0, "leverage": 1.0, "taker_fee": 0.0005,
+            "positions": {}, "closed_count": 0, "win_count": 0,
+        }
+    fee_rate = float(st.get("taker_fee") or 0.0005)
+    unrealized = 0.0
+    positions = []
+    for p in (st.get("positions") or {}).values():
+        sym = p.get("symbol")
+        entry = float(p.get("entry") or 0)
+        qty = float(p.get("qty") or 0)
+        side = p.get("side")
+        mark = prices.get(sym)
+        if mark is None:
+            mark = entry
+        direction = 1.0 if side == "LONG" else -1.0
+        gross = (float(mark) - entry) * qty * direction
+        upnl = gross - (qty * float(mark) * fee_rate)
+        unrealized += upnl
+        positions.append({
+            "symbol": sym,
+            "timeframe": p.get("timeframe"),
+            "side": side,
+            "qty": qty,
+            "entry": entry,
+            "entry_txt": fmt_price(entry),
+            "mark": float(mark),
+            "mark_txt": fmt_price(mark),
+            "margin": p.get("margin"),
+            "unrealized": round(upnl, 4),
+            "opened_at_wib": p.get("opened_at_wib"),
+            "url": f"{CHART_URL}?symbol={sym}&tf={p.get('timeframe')}",
+        })
+    wallet = float(st.get("balance") or 0)
+    realized = float(st.get("realized_pnl") or 0)
+    closed = int(st.get("closed_count") or 0)
+    wins = int(st.get("win_count") or 0)
+    starting = float(st.get("starting_balance") or 1000)
+    closed_trades = list(reversed(load_closed_paper_trades(40)))
+    return {
+        "starting_balance": starting,
+        "balance": round(wallet, 4),
+        "equity": round(wallet + unrealized, 4),
+        "realized_pnl": round(realized, 4),
+        "unrealized_pnl": round(unrealized, 4),
+        "fees_paid": round(float(st.get("fees_paid") or 0), 4),
+        "win_rate": None if closed == 0 else round(100.0 * wins / closed, 1),
+        "closed_count": closed,
+        "win_count": wins,
+        "open_count": len(positions),
+        "notional": float(st.get("notional") or 50),
+        "leverage": float(st.get("leverage") or 1),
+        "taker_fee": fee_rate,
+        "positions": positions,
+        "closed_trades": closed_trades,
+        "updated_wib": st.get("updated_wib"),
+        "note": "Paper only — no real orders or API keys. $50 notional at 1x, 0.05% taker fee per side, fill at the confirmation candle close.",
+    }
+
+
 def build() -> dict:
     cfg = load_yaml_cfg()
     runtime = bot_runtime()
@@ -625,6 +718,8 @@ def build() -> dict:
     except Exception:
         pass
 
+    paper = build_paper(prices)
+
     return {
         "generated_at": now_wib(),
         "generated_ts": int(time.time()),
@@ -650,6 +745,7 @@ def build() -> dict:
             "ws_error": loginfo.get("ws_error"),
         },
         "markets": markets,
+        "paper": paper,
         "alerts": list(reversed(alerts[-60:])),
         "adx": {
             "tf": ADX_TF,

@@ -56,6 +56,22 @@ td:not(:first-child),th:not(:first-child){text-align:right}
   <div class="card">
     <div class="meta" id="botmeta">Waiting for data…</div>
   </div>
+  <div class="card">
+    <h2>Paper trading <span class="side none" style="margin-left:6px">SIMULATED</span></h2>
+    <div class="meta" id="papernote" style="margin-bottom:8px">$1,000 start · $50 notional · 1x · 0.05% taker fee · fill at confirmation close</div>
+    <div class="grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:8px" id="papermetrics">
+      <div class="mkt"><div class="k">Balance</div><div class="px" id="p_bal">–</div></div>
+      <div class="mkt"><div class="k">Equity</div><div class="px" id="p_eq">–</div></div>
+      <div class="mkt"><div class="k">Realized P&amp;L</div><div class="px" id="p_rp">–</div></div>
+      <div class="mkt"><div class="k">Unrealized P&amp;L</div><div class="px" id="p_up">–</div></div>
+      <div class="mkt"><div class="k">Win rate</div><div class="px" id="p_wr">–</div></div>
+      <div class="mkt"><div class="k">Open positions</div><div class="px" id="p_oc">–</div></div>
+    </div>
+    <h2 style="margin-top:10px">Open positions</h2>
+    <div id="paperpos"><div class="empty">No open paper positions</div></div>
+    <h2 style="margin-top:12px">Recent closed trades</h2>
+    <div id="paperclosed"><div class="empty">No closed paper trades yet</div></div>
+  </div>
   <h2>Watched markets <small style="color:var(--mut);font-weight:400">20 mid-cap perps · 5m &amp; 15m</small></h2>
   <div class="grid" id="markets"><div class="empty">Loading markets…</div></div>
   <div class="card" style="margin-top:12px">
@@ -121,6 +137,36 @@ function render(d, live){
     "USD-M Futures"
   ].filter(Boolean);
   $("botmeta").innerHTML=bits.map(esc).join(" · ");
+
+  const paper=d.paper||{};
+  const money=(n,sign)=>{
+    if(n==null||n==="") return "–";
+    const x=Number(n);
+    const s=x.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+    return (sign && x>0?"+":"")+s;
+  };
+  const pnlClass=(n)=> n>0?"px pos":(n<0?"px neg":"px");
+  $("p_bal").textContent=money(paper.balance)+" USDT";
+  $("p_eq").textContent=money(paper.equity)+" USDT";
+  const rp=$("p_rp"); rp.textContent=money(paper.realized_pnl,true)+" USDT"; rp.className=pnlClass(paper.realized_pnl);
+  const up=$("p_up"); up.textContent=money(paper.unrealized_pnl,true)+" USDT"; up.className=pnlClass(paper.unrealized_pnl);
+  $("p_wr").textContent=paper.closed_count?(paper.win_rate+"%  ("+paper.win_count+"/"+paper.closed_count+")"):"–";
+  $("p_oc").textContent=String(paper.open_count??0);
+  if(paper.note) $("papernote").textContent=paper.note;
+  const pos=paper.positions||[];
+  if(!pos.length) $("paperpos").innerHTML=`<div class="empty">No open paper positions</div>`;
+  else $("paperpos").innerHTML=pos.map(p=>`<div class="it">
+      <div class="top"><a class="sym" href="${esc(p.url||"#")}">${esc(p.symbol)} <span class="tf">${esc(p.timeframe)}</span></a>${pill(p.side)}
+        <span class="${pnlClass(p.unrealized)}">${esc(money(p.unrealized,true))}</span></div>
+      <div class="det">entry ${esc(p.entry_txt||p.entry)} · mark ${esc(live[p.symbol]||p.mark_txt||p.mark)} · opened ${esc(fullTime(p.opened_at_wib))}</div>
+    </div>`).join("");
+  const ct=paper.closed_trades||[];
+  if(!ct.length) $("paperclosed").innerHTML=`<div class="empty">No closed paper trades yet. Positions open only on new confirmed signals after the bot starts — historic swings are not back-filled.</div>`;
+  else $("paperclosed").innerHTML=ct.map(t=>`<div class="it">
+      <div class="top"><a class="sym" href="${esc(t.url||"#")}">${esc(t.symbol)} <span class="tf">${esc(t.timeframe)}</span></a>${pill(t.side)}
+        <span class="${pnlClass(t.pnl)}">${esc(t.pnl_txt||money(t.pnl,true))}</span></div>
+      <div class="det">${esc(fullTime(t.at_wib))} · entry ${esc(t.entry_txt||t.entry)} → exit ${esc(t.exit_txt||t.exit)}${t.win?" · win":" · loss"}</div>
+    </div>`).join("");
 
   const mkts=d.markets||[];
   if(!mkts.length){ $("markets").innerHTML=`<div class="empty">No markets yet</div>`; }
