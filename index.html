@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0f14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ADX Swing</title>
+<style>
+:root{--bg:#0b0f14;--card:#141a22;--line:#222b36;--tx:#e6edf3;--mut:#8b98a5;--g:#22c55e;--r:#ef4444;--a:#f59e0b;--acc:#3b82f6;--buy:#22c55e;--sell:#ef4444}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:12px 12px calc(28px + env(safe-area-inset-bottom,0))}
+h1{font-size:18px;margin:4px 0 6px;font-weight:650}h1 small{color:var(--mut);font-weight:400;font-size:12px;display:block;margin-top:2px}
+h2{font-size:14px;margin:0 0 8px;font-weight:650}
+.badge{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:12px;font-weight:600;font-size:14px;margin-bottom:12px}
+.badge .dot{width:10px;height:10px;border-radius:50%;background:currentColor;flex:none}
+.badge.live{background:rgba(34,197,94,.12);color:var(--g)}.badge.live .dot{animation:p 1.6s infinite}
+.badge.down{background:rgba(239,68,68,.14);color:var(--r)}.badge.stale{background:rgba(245,158,11,.14);color:var(--a)}
+.badge.load{background:var(--card);color:var(--mut)}
+.badge .sub{font-weight:400;color:var(--mut);font-size:12px;margin-left:auto;text-align:right}
+@keyframes p{50%{opacity:.35}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:12px}
+.meta{color:var(--mut);font-size:12px;display:flex;flex-wrap:wrap;gap:6px 14px}
+.grid{display:grid;grid-template-columns:1fr;gap:8px}
+@media(min-width:560px){.grid{grid-template-columns:1fr 1fr}}
+.mkt{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.mkt .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.sym{color:var(--tx);font-weight:700;text-decoration:none}.sym:hover{text-decoration:underline}
+.tf{color:var(--mut);font-size:12px;margin-left:6px;font-weight:500}
+.px{font-weight:650;font-variant-numeric:tabular-nums}
+.row{margin-top:8px;display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.k{color:var(--mut);font-size:12px}.v{font-size:13px;text-align:right;font-variant-numeric:tabular-nums}
+.side{font-size:11px;font-weight:700;padding:1px 7px;border-radius:6px;letter-spacing:.02em}
+.side.buy,.side.long{background:rgba(34,197,94,.15);color:var(--g)}
+.side.sell,.side.short{background:rgba(239,68,68,.15);color:var(--r)}
+.side.form{background:rgba(245,158,11,.16);color:var(--a)}
+.side.none{background:#0e141b;color:var(--mut)}
+.it{border-top:1px solid var(--line);padding:10px 0}.it:first-child{border-top:0}
+.it .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.det{color:var(--mut);font-size:12px;margin-top:3px;font-variant-numeric:tabular-nums}
+.empty{color:var(--mut);padding:14px 0;text-align:center}
+.err{color:var(--a);font-size:12px;margin-top:6px}
+footer{color:var(--mut);font-size:12px;text-align:center;margin-top:16px;line-height:1.6}
+footer a{color:#93c5fd}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{color:var(--mut);font-size:11px;text-align:left;font-weight:600;padding:0 6px 6px 0}
+td{padding:8px 6px 8px 0;border-top:1px solid var(--line);font-size:13px}
+td:not(:first-child),th:not(:first-child){text-align:right}
+.fresh{color:var(--a);font-size:11px;font-weight:700;margin-left:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ADX Swing <small>Alert-only · Binance USD-M Futures · times in WIB (UTC+7)</small></h1>
+  <div id="badge" class="badge load"><span class="dot"></span><span id="btxt">Loading…</span><span class="sub" id="bsub"></span></div>
+  <div class="card">
+    <div class="meta" id="botmeta">Waiting for data…</div>
+  </div>
+  <h2>Watched markets</h2>
+  <div class="grid" id="markets"><div class="empty">Loading markets…</div></div>
+  <div class="card" style="margin-top:12px">
+    <h2>Recent alerts</h2>
+    <div id="alerts"><div class="empty">Loading…</div></div>
+  </div>
+  <div class="card">
+    <h2>ADX 1-minute scanner</h2>
+    <div class="meta" style="margin-bottom:8px">NEAR, INJ, RENDER, FET, ARB · ADX ≥ 25 and rising with a fresh +DI/−DI cross</div>
+    <div id="adx"><div class="empty">Loading…</div></div>
+  </div>
+  <footer>
+    Alerts only — no orders are placed. Not financial advice.<br>
+    <a href="https://dedkovic441-hub.github.io/adx-swing/">Open the live chart</a>
+    · page refreshes every 30s
+  </footer>
+</div>
+<script>
+const CHART = "https://dedkovic441-hub.github.io/adx-swing/";
+function $(id){return document.getElementById(id)}
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
+function sideClass(name){
+  const n=(name||"").toUpperCase();
+  if(n==="BUY"||n==="LONG") return "buy";
+  if(n==="SELL"||n==="SHORT") return "sell";
+  if(n.endsWith("?")) return "form";
+  return "none";
+}
+function pill(name){if(!name) return `<span class="side none">—</span>`; return `<span class="side ${sideClass(name)}">${esc(name)}</span>`}
+function shortTime(wib){
+  if(!wib) return "—";
+  const m=String(wib).replace(" Asia/Jakarta","").match(/(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})/);
+  return m?`${m[2]} WIB`:`${wib}`;
+}
+function fullTime(wib){return wib?String(wib).replace(" Asia/Jakarta"," WIB"):"—"}
+
+async function livePrices(symbols){
+  try{
+    const r=await fetch("https://fapi.binance.com/fapi/v1/ticker/price",{cache:"no-store"});
+    if(!r.ok) return {};
+    const rows=await r.json();
+    const want=new Set(symbols);
+    const out={};
+    for(const row of rows){ if(want.has(row.symbol)) out[row.symbol]=row.price; }
+    return out;
+  }catch(e){ return {}; }
+}
+
+function render(d, live){
+  const bot=d.bot||{};
+  const badge=$("badge"), btxt=$("btxt"), bsub=$("bsub");
+  badge.className="badge "+(bot.alive? (bot.stale?"stale":"live") : "down");
+  btxt.textContent = bot.alive ? (bot.mode==="polling" ? "Bot live (REST polling)" : "Bot live") : "Bot down";
+  bsub.innerHTML = `updated ${esc(fullTime(d.generated_at))}<br>heartbeat ${esc(fullTime(bot.heartbeat_wib))}`;
+  const bits=[
+    `PID ${bot.pid??"—"}`,
+    `feed ${bot.mode||"—"}`,
+    `sensitivity ${bot.sensitivity||"—"}`,
+    bot.started_wib?`started ${fullTime(bot.started_wib)}`:"",
+    bot.last_closed?`last closed candle ${bot.last_closed}`:"",
+    bot.last_closed_wib?`at ${fullTime(bot.last_closed_wib)}`:"",
+    "Telegram off",
+    "USD-M Futures"
+  ].filter(Boolean);
+  $("botmeta").innerHTML=bits.map(esc).join(" · ");
+
+  const mkts=d.markets||[];
+  if(!mkts.length){ $("markets").innerHTML=`<div class="empty">No markets yet</div>`; }
+  else {
+    $("markets").innerHTML=mkts.map(m=>{
+      const px=live[m.symbol] || m.price_txt || m.price || "—";
+      const last=m.last_signal;
+      const form=m.forming;
+      const err=m.error?`<div class="err">${esc(m.error)}</div>`:"";
+      const lastTxt=last?`${pill(last.name)} ${esc(last.price_txt||last.price)} <span class="k">${esc(last.kind||"")} · pivot ${esc(fullTime(last.pivot_wib))}${last.confirm_wib?" · confirmed "+fullTime(last.confirm_wib):""}${last.lag!=null?" · lag "+last.lag:""}${last.stars? " · "+"★".repeat(last.stars)+"☆".repeat(Math.max(0,3-last.stars)):""}</span>`:pill(null)+" no confirmed swing yet";
+      const formTxt=form?`${pill(form.name)} ${esc(form.price_txt||form.price)} <span class="k">forming · ${esc(form.kind||"")} · ${esc(fullTime(form.pivot_wib))}</span>`:`<span class="side none">none</span>`;
+      return `<div class="mkt">
+        <div class="top"><a class="sym" href="${esc(m.url||CHART+"?symbol="+m.symbol+"&tf="+m.tf)}">${esc(m.symbol)}<span class="tf">${esc(m.tf)}</span></a><div class="px">${esc(px)}</div></div>
+        <div class="row"><div class="k">Last confirmed</div><div class="v">${lastTxt}</div></div>
+        <div class="row"><div class="k">Forming</div><div class="v">${formTxt}</div></div>
+        ${err}
+      </div>`;
+    }).join("");
+  }
+
+  const alerts=d.alerts||[];
+  if(!alerts.length){
+    $("alerts").innerHTML=`<div class="empty">No new alerts since the bot started${bot.started_wib?" at "+fullTime(bot.started_wib):""}. Last confirmed pivots are on the market cards above.</div>`;
+  } else {
+    $("alerts").innerHTML=alerts.map(a=>`<div class="it">
+      <div class="top"><a class="sym" href="${esc(a.url||"#")}">${esc(a.symbol)} <span class="tf">${esc(a.tf)}</span></a>${pill(a.name)}</div>
+      <div class="det">${esc(fullTime(a.wib))}${a.price?" · @ "+esc(a.price):""}${a.kind?" · "+esc(a.kind):""}</div>
+    </div>`).join("");
+  }
+
+  const rows=(d.adx&&d.adx.rows)||[];
+  if(!rows.length){ $("adx").innerHTML=`<div class="empty">No ADX data</div>`; }
+  else {
+    $("adx").innerHTML=`<table><thead><tr><th>Coin</th><th>Price</th><th>ADX</th><th>+DI</th><th>−DI</th><th>Setup</th></tr></thead><tbody>`+
+      rows.map(r=>{
+        if(r.error) return `<tr><td>${esc(r.symbol)}</td><td colspan="5" class="err">${esc(r.error)}</td></tr>`;
+        const setup=r.signal? `${pill(r.signal)}${r.new_alert?'<span class="fresh">NEW</span>':''}` : `<span class="side none">none</span>`;
+        return `<tr>
+          <td><a class="sym" href="${esc(r.url||CHART+"?symbol="+r.symbol+"&tf=1m")}">${esc(r.symbol.replace("USDT",""))}</a></td>
+          <td>${esc(live[r.symbol]||r.price_txt||r.close||"—")}</td>
+          <td>${esc(r.adx??"—")}${r.adx_prev!=null?`<div class="k">prev ${esc(r.adx_prev)}</div>`:""}</td>
+          <td>${esc(r["+di"]??"—")}</td>
+          <td>${esc(r["-di"]??"—")}</td>
+          <td>${setup}<div class="k">${esc(r.candle_close_wib?fullTime(r.candle_close_wib):"")}</div></td>
+        </tr>`;
+      }).join("")+`</tbody></table>`;
+  }
+}
+
+let lastData=null;
+async function load(){
+  try{
+    const r=await fetch("data.json?t="+Date.now(),{cache:"no-store"});
+    if(!r.ok) throw new Error("data.json HTTP "+r.status);
+    lastData=await r.json();
+    const symbols=[...new Set((lastData.markets||[]).map(m=>m.symbol).concat(((lastData.adx||{}).rows)||[]).map(x=>x.symbol).filter(Boolean))];
+    const live=await livePrices(symbols);
+    render(lastData, live);
+  }catch(e){
+    $("badge").className="badge stale";
+    $("btxt").textContent="Could not load dashboard data";
+    $("bsub").textContent=String(e.message||e);
+  }
+}
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>
