@@ -982,7 +982,7 @@ def build_paper(prices: dict, state_path: Path | None = None, trades_path: Path 
             "mark_txt": fmt_price(mark),
             "margin": p.get("margin"),
             "notional": p.get("notional"),
-            "leverage": p.get("leverage"),
+            "leverage": float(p["leverage"]) if p.get("leverage") is not None else 1.0,
             "first_notional": p.get("first_notional"),
             "leg_count": leg_count,
             "faded": bool(p.get("faded")),
@@ -1250,7 +1250,7 @@ def slim_position(p: dict) -> dict:
     out = {}
     keep = (
         "symbol", "timeframe", "side", "qty", "entry", "avg_entry", "mark",
-        "margin", "notional", "first_notional", "leg_count", "faded",
+        "margin", "notional", "leverage", "first_notional", "leg_count", "faded",
         "fade_count", "unrealized",
     )
     for key in keep:
