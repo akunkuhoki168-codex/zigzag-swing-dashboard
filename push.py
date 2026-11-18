@@ -682,18 +682,19 @@ def load_closed_paper_trades(limit: int = 40, path: Path | None = None, actions:
 def paper_notes(active_tf: str = "15m") -> tuple[str, str]:
     tf = active_tf or "15m"
     confirmed = (
-        f"Paper only — no real orders or API keys. $50 notional at 1x, 0.05% taker fee per side, "
+        f"COMPOUNDING: each new position = 5% of current balance (started at $50 on $1,000), 1x. "
+        f"Paper only — no real orders or API keys. 0.05% taker fee per side, "
         f"fill at the confirmation candle close. One open position per coin, traded only on the "
         f"active timeframe ({tf}). An opposite signal closes the trade and flips. "
         f"Positions are not closed on fade, timeout, stop, or take-profit."
     )
     unconfirmed = (
-        f"Paper only — no real orders or API keys. Default $50 notional at 1x, 0.05% taker fee per side. "
+        f"COMPOUNDING: each new position = 5% of current balance (started at $50 on $1,000), 1x; DCA legs match the first leg. "
+        f"Paper only — no real orders or API keys. 0.05% taker fee per side. "
         f"Enters at the close of the candle when a new unconfirmed BUY?/SELL? first appears on the "
         f"active timeframe ({tf}). One open position per coin. If that signal fades, the position "
-        f"stays open. On 15m, every new same-direction unconfirmed signal (including a pivot walk) "
-        f"adds another leg of the first leg's notional, with no fade required. On 5m, a fade is "
-        f"required before a same-direction add. Up to 4 adds (5 legs). An opposite unconfirmed "
+        f"stays open. Every new same-direction unconfirmed signal (including a pivot walk) "
+        f"adds another leg of the first leg's notional, with no fade required. Up to 4 adds (5 legs). An opposite unconfirmed "
         f"signal closes the whole stack and flips. Positions are not closed on fade, timeout, "
         f"stop, or take-profit."
     )
