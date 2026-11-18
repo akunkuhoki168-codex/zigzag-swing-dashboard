@@ -113,7 +113,7 @@ details.panel>summary .meta{display:inline}
   </div>
   <div class="card">
     <details id="panel-trade-settings" class="panel">
-      <summary><h2>Trade settings</h2> <span class="meta">paper only · both accounts</span></summary>
+      <summary><h2>Trade settings</h2> <span class="meta">paper only · both accounts</span><button type="button" id="set_save" style="margin-left:auto">Save settings</button></summary>
       <div class="settings-grid" style="margin-top:10px">
         <label>Timeframe
           <select id="set_tf">
@@ -149,9 +149,6 @@ details.panel>summary .meta{display:inline}
         <input id="set_token" type="password" placeholder="ghp_… or github_pat_… (optional)" autocomplete="off" spellcheck="false">
         <a href="#" id="set_forget">forget token</a>
         Without a token, Save opens a prefilled GitHub issue in the dashboard repo for the box poller to apply.
-      </div>
-      <div class="settings-actions">
-        <button type="button" id="set_save">Save settings</button>
       </div>
       <div id="set_status">Live values load from the published bot settings.</div>
     </details>
@@ -1156,7 +1153,7 @@ function bindTradeSettings(){
   const save=$("set_save");
   if(save && !save.dataset.bound){
     save.dataset.bound="1";
-    save.addEventListener("click", onSaveSettings);
+    save.addEventListener("click", e=>{ e.preventDefault(); e.stopPropagation(); onSaveSettings(e); });
   }
   ["set_tf","set_tp","set_cd","set_lev","set_size","set_dca","set_maxadd"].forEach(id=>{
     const el=$(id);
