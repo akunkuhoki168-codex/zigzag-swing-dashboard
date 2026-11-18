@@ -87,16 +87,73 @@ details.panel.nested{margin-top:12px;border-top:1px solid var(--line);padding-to
 .trades-sum{display:flex;flex-wrap:wrap;gap:6px 14px;color:var(--mut);font-size:12px;margin-top:8px}
 .trades-sum b{color:var(--tx);font-weight:650}
 details.panel>summary .meta{display:inline}
+.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 12px;margin:10px 0}
+.settings-grid label{display:flex;flex-direction:column;gap:4px;color:var(--mut);font-size:12px;font-weight:600}
+.settings-grid input,.settings-grid select{background:var(--bg);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;font-weight:500}
+.settings-warn{color:var(--a);font-size:12px;margin:8px 0;line-height:1.4}
+.settings-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:12px 0 6px}
+#set_save{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:8px 14px;font-weight:650;cursor:pointer}
+#set_save:disabled{opacity:.6;cursor:default}
+.settings-token{font-size:12px;color:var(--mut);margin:8px 0;line-height:1.45}
+.settings-token input[type="password"]{width:min(100%,360px);background:var(--bg);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;margin:6px 0;display:block}
+.settings-token a{color:var(--acc)}
+#set_status{font-size:12px;min-height:1.4em;margin:6px 0 2px;color:var(--mut)}
+#set_status.ok{color:var(--g)}#set_status.wait{color:var(--a)}#set_status.err{color:var(--r)}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Zigzag Swing <small>Alert-only · Binance USD-M Futures · times in WIB (UTC+7) · <b style="color:#f59e0b">Paper: COMPOUNDING 5% of balance margin x 3 leverage per trade · TP +$2 net or opposite signal, whichever first · cooldown 3m after close</b></small></h1>
+  <h1>Zigzag Swing <small>Alert-only · Binance USD-M Futures · times in WIB (UTC+7) · <b id="paperhead" style="color:#f59e0b">Paper: COMPOUNDING 5% of balance margin x 3 leverage per trade · TP +$2 · cooldown 3m after close</b></small></h1>
   <div id="badge" class="badge load"><span class="dot"></span><span id="btxt">Loading…</span><span class="sub" id="bsub"></span></div>
   <div class="card">
     <details id="panel-status" class="panel" open>
       <summary><h2>Bot status</h2></summary>
       <div class="meta" id="botmeta" style="margin-top:8px">Waiting for data…</div>
+    </details>
+  </div>
+  <div class="card">
+    <details id="panel-trade-settings" class="panel">
+      <summary><h2>Trade settings</h2> <span class="meta">paper only · both accounts</span></summary>
+      <div class="settings-grid" style="margin-top:10px">
+        <label>Timeframe
+          <select id="set_tf">
+            <option value="1m">1m</option>
+            <option value="5m" selected>5m</option>
+            <option value="15m">15m</option>
+          </select>
+        </label>
+        <label>TP ($)
+          <input id="set_tp" type="number" min="0" max="100" step="0.1" value="2">
+        </label>
+        <label>Cooldown (minutes)
+          <input id="set_cd" type="number" min="0" max="240" step="1" value="3">
+        </label>
+        <label>Leverage
+          <input id="set_lev" type="number" min="1" max="20" step="0.1" value="3">
+        </label>
+        <label>Size % of balance
+          <input id="set_size" type="number" min="0.5" max="50" step="0.5" value="5">
+        </label>
+        <label>Unconfirmed DCA every N signals
+          <input id="set_dca" type="number" min="1" max="20" step="1" value="3">
+        </label>
+        <label>Max DCA adds
+          <input id="set_maxadd" type="number" min="0" max="10" step="1" value="4">
+        </label>
+      </div>
+      <div class="settings-warn">Switching the active timeframe closes any open paper position that is not on the new timeframe (reason: timeframe off), then the 3-minute cooldown (or whatever is set) applies.</div>
+      <div class="settings-token">
+        To apply Save from this page, paste a fine-grained GitHub personal access token once. It is stored only in this browser (localStorage), never committed or published.
+        Scope it to the <b>zigzag-swing-dashboard</b> repo only, with Contents read/write.
+        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Create a token</a>.
+        <input id="set_token" type="password" placeholder="ghp_… or github_pat_… (optional)" autocomplete="off" spellcheck="false">
+        <a href="#" id="set_forget">forget token</a>
+        Without a token, Save opens a prefilled GitHub issue in the dashboard repo for the box poller to apply.
+      </div>
+      <div class="settings-actions">
+        <button type="button" id="set_save">Save settings</button>
+      </div>
+      <div id="set_status">Live values load from the published bot settings.</div>
     </details>
   </div>
   <div class="card" id="modecard">
@@ -114,6 +171,7 @@ details.panel>summary .meta{display:inline}
       <summary><h2>Live chart</h2></summary>
       <div class="chart-head" style="margin-top:8px">
         <div class="seg" id="tftoggle">
+          <button type="button" data-tf="1m">1m</button>
           <button type="button" data-tf="5m" class="on">5m</button>
           <button type="button" data-tf="15m">15m</button>
         </div>
@@ -135,7 +193,7 @@ details.panel>summary .meta{display:inline}
   <div class="card">
     <details id="panel-paper" class="panel" open>
       <summary><h2 id="paperh2">Paper trading · Confirmed <span class="side none" style="margin-left:6px">SIMULATED</span></h2></summary>
-      <div class="meta" id="papernote" style="margin:8px 0">$1,000 start · COMPOUNDING 5% of balance margin × 3 leverage · TP +$2 net or opposite signal or liquidation, whichever first · cooldown 3m after close · DCA every 3rd same-direction signal, max 4 adds · 0.05% taker fee · fill at confirmation close</div>
+      <div class="meta" id="papernote" style="margin:8px 0">Paper only — no real orders or API keys. 0.05% taker fee. Use Trade settings for timeframe, TP, cooldown, leverage, size, and DCA.</div>
       <div class="grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:8px" id="papermetrics">
         <div class="mkt"><div class="k">Balance</div><div class="px" id="p_bal">–</div></div>
         <div class="mkt"><div class="k">Equity</div><div class="px" id="p_eq">–</div></div>
@@ -161,7 +219,7 @@ details.panel>summary .meta{display:inline}
   </div>
   <div class="card">
     <details id="panel-markets" class="panel" open>
-      <summary><h2>Watched markets</h2> <span class="meta" id="watchcount">30 mid-cap perps · 5m &amp; 15m</span></summary>
+      <summary><h2>Watched markets</h2> <span class="meta" id="watchcount">30 mid-cap perps · 1m, 5m &amp; 15m</span></summary>
       <div class="grid" id="markets" style="margin-top:8px"><div class="empty">Loading markets…</div></div>
     </details>
   </div>
@@ -188,7 +246,7 @@ details.panel>summary .meta{display:inline}
 const CHART = "https://dedkovic441-hub.github.io/zigzag-swing/";
 const REST_BASES = ["https://fapi.binance.com","https://fapi1.binance.com","https://fapi2.binance.com","https://fapi3.binance.com","https://fapi4.binance.com"];
 const WS_HOST = "wss://fstream.binance.com";
-const INTERVAL_SEC = { "5m": 300, "15m": 900 };
+const INTERVAL_SEC = { "1m": 60, "5m": 300, "15m": 900 };
 function $(id){return document.getElementById(id)}
 const MODE_KEY="adx-swing:signalMode";
 function loadMode(){
@@ -760,11 +818,14 @@ function render(d, live){
   });
   const nCoins=(bot.symbols||[]).length || [...new Set((d.markets||[]).map(m=>m.symbol))].length;
   const watch=$("watchcount");
-  if(watch) watch.textContent=(nCoins?nCoins+" mid-cap perps":"mid-cap perps")+" · 5m & 15m";
+  const scanned=(((d.settings||{}).scanned_timeframes)||bot.timeframes||["1m","5m","15m"]);
+  if(watch) watch.textContent=(nCoins?nCoins+" mid-cap perps":"mid-cap perps")+" · "+formatTfList(scanned);
   renderChips(order.length?order:(bot.symbols||[]));
+  syncSettingsPanel(d);
   if(!liveChart.symbol){
     const first=(order[0]||(bot.symbols||[])[0]);
-    if(first) selectChart(first, "5m", false);
+    const paperTf=(d.settings&&d.settings.active_timeframe)||bot.paper_active_timeframe||"5m";
+    if(first) selectChart(first, paperTf, false);
   } else if(liveChart.ready && liveChart.series){
     liveChart.series.setMarkers(collectMarkers(liveChart.symbol, liveChart.tf, liveChart.candles, d));
   }
@@ -878,27 +939,264 @@ function resizeLiveChart(){
   if(!box || box.clientWidth<20) return;
   liveChart.tv.applyOptions({width:box.clientWidth,height:box.clientHeight||260});
 }
+
+const SETTINGS_REPO="dedkovic441-hub/zigzag-swing-dashboard";
+const SETTINGS_PATH="control/settings.json";
+const SETTINGS_TOKEN_KEY="zz_gh_settings_token";
+const SETTINGS_BOUNDS={
+  tf:["1m","5m","15m"],
+  tp:[0,100], cd:[0,240], lev:[1,20], size:[0.5,50], dca:[1,20], adds:[0,10]
+};
+let settingsFilled=false;
+let settingsDirty=false;
+let pendingApply=null;
+let applyTimer=null;
+
+function formatTfList(tfs){
+  const list=(tfs||[]).map(String).filter(Boolean);
+  if(!list.length) return "1m, 5m & 15m";
+  if(list.length===1) return list[0];
+  return list.slice(0,-1).join(", ")+" & "+list[list.length-1];
+}
+function effectiveSettings(d){
+  const s=(d&&d.settings)||{};
+  const bot=(d&&d.bot)||{};
+  const paper=(d&&d.paper)||{};
+  return {
+    active_timeframe: String(s.active_timeframe||bot.paper_active_timeframe||paper.active_timeframe||"5m").toLowerCase(),
+    take_profit_usd: Number(s.take_profit_usd??2),
+    cooldown_minutes: Number(s.cooldown_minutes??3),
+    leverage: Number(s.leverage??paper.leverage??3),
+    size_percent: Number(s.size_percent??5),
+    dca_signal_every: Number(s.dca_signal_every??3),
+    max_add_positions: Number(s.max_add_positions??4),
+    applied_wib: s.applied_wib||"",
+    scanned_timeframes: s.scanned_timeframes||bot.timeframes||["1m","5m","15m"]
+  };
+}
+function settingsMatch(a,b){
+  if(!a||!b) return false;
+  const close=(x,y)=>Math.abs(Number(x)-Number(y))<1e-6;
+  return String(a.active_timeframe).toLowerCase()===String(b.active_timeframe).toLowerCase()
+    && close(a.take_profit_usd,b.take_profit_usd)
+    && close(a.cooldown_minutes,b.cooldown_minutes)
+    && close(a.leverage,b.leverage)
+    && close(a.size_percent,b.size_percent)
+    && Number(a.dca_signal_every)===Number(b.dca_signal_every)
+    && Number(a.max_add_positions)===Number(b.max_add_positions);
+}
+function updatePaperHead(s){
+  const el=$("paperhead");
+  if(!el||!s) return;
+  const size=Number(s.size_percent);
+  const lev=Number(s.leverage);
+  const tp=Number(s.take_profit_usd);
+  const cd=Number(s.cooldown_minutes);
+  const sizeBit=Number.isFinite(size)?size.toString():"5";
+  const levBit=Number.isFinite(lev)?lev.toString():"3";
+  const tpBit=Number.isFinite(tp)?tp.toString():"2";
+  const cdBit=Number.isFinite(cd)?cd.toString():"3";
+  el.textContent=`Paper: COMPOUNDING ${sizeBit}% of balance margin x ${levBit} leverage per trade · TP +$${tpBit} · cooldown ${cdBit}m after close`;
+}
+function setStatus(msg, kind){
+  const el=$("set_status");
+  if(!el) return;
+  el.textContent=msg||"";
+  el.className=kind||"";
+}
+function fillSettingsForm(s){
+  if(!s) return;
+  const tf=$("set_tf"); if(tf) tf.value=SETTINGS_BOUNDS.tf.includes(s.active_timeframe)?s.active_timeframe:"5m";
+  const set=(id,v)=>{const el=$(id); if(el) el.value=String(v)};
+  set("set_tp", s.take_profit_usd);
+  set("set_cd", s.cooldown_minutes);
+  set("set_lev", s.leverage);
+  set("set_size", s.size_percent);
+  set("set_dca", s.dca_signal_every);
+  set("set_maxadd", s.max_add_positions);
+}
+function syncSettingsPanel(d){
+  const live=effectiveSettings(d);
+  updatePaperHead(live);
+  if(!settingsDirty) fillSettingsForm(live);
+  settingsFilled=true;
+  if(pendingApply && settingsMatch(live, pendingApply)){
+    const when=live.applied_wib||(d.generated_at||"");
+    setStatus("Applied at "+(when||"this publish")+" WIB.", "ok");
+    pendingApply=null;
+    settingsDirty=false;
+    fillSettingsForm(live);
+    if(applyTimer){ clearInterval(applyTimer); applyTimer=null; }
+  }
+}
+function readSettingsForm(){
+  const num=(id,lo,hi,label)=>{
+    const el=$(id);
+    const v=Number(el&&el.value);
+    if(!Number.isFinite(v) || v<lo || v>hi) throw new Error(label+" must be between "+lo+" and "+hi);
+    return v;
+  };
+  const tf=($("set_tf")&&$("set_tf").value||"").toLowerCase();
+  if(!SETTINGS_BOUNDS.tf.includes(tf)) throw new Error("Timeframe must be 1m, 5m, or 15m");
+  return {
+    active_timeframe: tf,
+    take_profit_usd: num("set_tp", ...SETTINGS_BOUNDS.tp, "TP ($)"),
+    cooldown_minutes: num("set_cd", ...SETTINGS_BOUNDS.cd, "Cooldown (minutes)"),
+    leverage: num("set_lev", ...SETTINGS_BOUNDS.lev, "Leverage"),
+    size_percent: num("set_size", ...SETTINGS_BOUNDS.size, "Size % of balance"),
+    dca_signal_every: Math.round(num("set_dca", ...SETTINGS_BOUNDS.dca, "DCA every N")),
+    max_add_positions: Math.round(num("set_maxadd", ...SETTINGS_BOUNDS.adds, "Max DCA adds"))
+  };
+}
+function nowWibStamp(){
+  try{
+    return new Date().toLocaleString("en-CA",{timeZone:"Asia/Jakarta",hour12:false}).replace(","," ");
+  }catch(e){
+    return new Date().toISOString();
+  }
+}
+function loadToken(){
+  try{ return localStorage.getItem(SETTINGS_TOKEN_KEY)||""; }catch(e){ return ""; }
+}
+function saveToken(v){
+  try{
+    if(v) localStorage.setItem(SETTINGS_TOKEN_KEY,v);
+    else localStorage.removeItem(SETTINGS_TOKEN_KEY);
+  }catch(e){}
+}
+function issueUrl(settings){
+  const title="settings: "+settings.active_timeframe+" TP$"+settings.take_profit_usd+" cd"+settings.cooldown_minutes+"m lev"+settings.leverage;
+  const body=["Apply these paper trade settings:", "", "```json", JSON.stringify(settings,null,2), "```", ""].join("\n");
+  return "https://github.com/"+SETTINGS_REPO+"/issues/new?title="+encodeURIComponent(title)+"&body="+encodeURIComponent(body);
+}
+async function githubPutSettings(token, settings){
+  const url="https://api.github.com/repos/"+SETTINGS_REPO+"/contents/"+SETTINGS_PATH;
+  const headers={"Accept":"application/vnd.github+json","Authorization":"Bearer "+token,"X-GitHub-Api-Version":"2022-11-28"};
+  let sha=null;
+  const get=await fetch(url+"?ref=main",{headers, cache:"no-store"});
+  if(get.ok){
+    const data=await get.json();
+    sha=data.sha||null;
+  }else if(get.status!==404){
+    const t=await get.text();
+    throw new Error("GitHub read failed HTTP "+get.status+" "+t.slice(0,180));
+  }
+  const payload={
+    ...settings,
+    updated_utc:new Date().toISOString(),
+    updated_wib:nowWibStamp()+" Asia/Jakarta"
+  };
+  const body={
+    message:"Update paper trade settings",
+    content:btoa(unescape(encodeURIComponent(JSON.stringify(payload,null,2)+"\n"))),
+    branch:"main"
+  };
+  if(sha) body.sha=sha;
+  const put=await fetch(url,{method:"PUT", headers:Object.assign({"Content-Type":"application/json"}, headers), body:JSON.stringify(body)});
+  if(!put.ok){
+    const t=await put.text();
+    throw new Error("GitHub write failed HTTP "+put.status+" "+t.slice(0,180));
+  }
+}
+function startWaitingForApply(settings){
+  pendingApply=settings;
+  if(applyTimer) clearInterval(applyTimer);
+  applyTimer=setInterval(()=>{ load(); }, 15000);
+  // also try immediately on the next tick of the regular 30s load
+}
+async function onSaveSettings(){
+  const btn=$("set_save");
+  try{
+    const settings=readSettingsForm();
+    settingsDirty=true;
+    const token=($("set_token")&&$("set_token").value.trim())||loadToken();
+    if(token) saveToken(token);
+    if(btn) btn.disabled=true;
+    if(token){
+      setStatus("Saving to GitHub…", "wait");
+      try{
+        await githubPutSettings(token, settings);
+        setStatus("Saved to GitHub at "+nowWibStamp()+" WIB. Waiting for the bot to apply…", "wait");
+        startWaitingForApply(settings);
+        return;
+      }catch(e){
+        setStatus("Token save failed ("+(e.message||e)+"). Opening a GitHub issue instead.", "err");
+      }
+    }
+    window.open(issueUrl(settings), "_blank", "noopener");
+    setStatus("Opened a GitHub issue at "+nowWibStamp()+" WIB. The bot will apply it, then this status becomes Applied at …", "wait");
+    startWaitingForApply(settings);
+  }catch(e){
+    setStatus(String(e.message||e), "err");
+  }finally{
+    if(btn) btn.disabled=false;
+  }
+}
+function bindTradeSettings(){
+  const tokenEl=$("set_token");
+  if(tokenEl && !tokenEl.dataset.bound){
+    tokenEl.dataset.bound="1";
+    const saved=loadToken();
+    if(saved) tokenEl.value=saved;
+    tokenEl.addEventListener("change",()=>{
+      const v=tokenEl.value.trim();
+      if(v) saveToken(v);
+    });
+  }
+  const forget=$("set_forget");
+  if(forget && !forget.dataset.bound){
+    forget.dataset.bound="1";
+    forget.addEventListener("click", ev=>{
+      ev.preventDefault();
+      saveToken("");
+      if(tokenEl) tokenEl.value="";
+      setStatus("Token forgotten in this browser.", "");
+    });
+  }
+  const save=$("set_save");
+  if(save && !save.dataset.bound){
+    save.dataset.bound="1";
+    save.addEventListener("click", onSaveSettings);
+  }
+  ["set_tf","set_tp","set_cd","set_lev","set_size","set_dca","set_maxadd"].forEach(id=>{
+    const el=$(id);
+    if(el && !el.dataset.dirtyBound){
+      el.dataset.dirtyBound="1";
+      el.addEventListener("input",()=>{ settingsDirty=true; });
+      el.addEventListener("change",()=>{ settingsDirty=true; });
+    }
+  });
+}
+
 function bindCollapsiblePanels(){
   document.querySelectorAll("details.panel[id]").forEach(el=>{
     if(el.dataset.bound) return;
     el.dataset.bound="1";
     const key="zz_panel_open:"+el.id;
-    try{
-      let v=localStorage.getItem(key);
-      if(v==null && el.id==="paperclosedbox") v=localStorage.getItem("zz_recent_open");
-      if(v==="0") el.open=false;
-      else if(v==="1") el.open=true;
-    }catch(e){}
-    el.addEventListener("toggle",()=>{
+    const skipPersist=el.id==="panel-trade-settings";
+    if(skipPersist){
+      el.open=false;
+    }else{
       try{
-        localStorage.setItem(key, el.open?"1":"0");
-        if(el.id==="paperclosedbox") localStorage.setItem("zz_recent_open", el.open?"1":"0");
+        let v=localStorage.getItem(key);
+        if(v==null && el.id==="paperclosedbox") v=localStorage.getItem("zz_recent_open");
+        if(v==="0") el.open=false;
+        else if(v==="1") el.open=true;
       }catch(e){}
+    }
+    el.addEventListener("toggle",()=>{
+      if(!skipPersist){
+        try{
+          localStorage.setItem(key, el.open?"1":"0");
+          if(el.id==="paperclosedbox") localStorage.setItem("zz_recent_open", el.open?"1":"0");
+        }catch(e){}
+      }
       if(el.open) resizeLiveChart();
     });
   });
 }
 bindCollapsiblePanels();
+bindTradeSettings();
 load();
 loadChartLib();
 setInterval(load, 30000);
