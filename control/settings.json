@@ -1,11 +1,11 @@
 {
-  "active_timeframe": "5m",
-  "take_profit_usd": 2,
-  "cooldown_minutes": 3,
-  "leverage": 5,
-  "size_percent": 5,
+  "active_timeframe": "1m",
+  "take_profit_usd": 2.0,
+  "cooldown_minutes": 3.0,
+  "leverage": 5.0,
+  "size_percent": 5.0,
   "dca_signal_every": 3,
-  "max_add_positions": 4,
-  "updated_utc": "2026-11-18T12:45:28.164Z",
-  "updated_wib": "2026-11-18  19:45:28 Asia/Jakarta"
+  "max_add_positions": 5,
+  "updated_utc": "2026-11-18T15:12:24Z",
+  "updated_wib": "2026-11-18 22:12:24 Asia/Jakarta"
 }
