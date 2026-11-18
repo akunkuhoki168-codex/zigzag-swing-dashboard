@@ -118,8 +118,10 @@ body.mode-unconfirmed .chart-leg .legend-unconfirmed{display:inline-flex}
     </div>
     <h2 style="margin-top:10px">Open positions</h2>
     <div id="paperpos"><div class="empty">No open paper positions</div></div>
-    <h2 id="paperclosedh2" style="margin-top:12px">Recent closed trades</h2>
-    <div id="paperclosed"><div class="empty">No closed paper trades yet</div></div>
+    <details id="paperclosedbox" open style="margin-top:12px">
+      <summary style="cursor:pointer;list-style:revert"><h2 id="paperclosedh2" style="display:inline;margin:0">Recent closed trades</h2> <span class="meta">(last 8 · tap to collapse)</span></summary>
+      <div id="paperclosed" style="margin-top:8px"><div class="empty">No closed paper trades yet</div></div>
+    </details>
   </div>
   <h2>Watched markets <small id="watchcount" style="color:var(--mut);font-weight:400">30 mid-cap perps · 5m &amp; 15m</small></h2>
   <div class="grid" id="markets"><div class="empty">Loading markets…</div></div>
@@ -546,7 +548,7 @@ function render(d, live){
       <div class="det">${avg} · mark ${esc(fmtPx(live[p.symbol]||p.mark_txt||p.mark))} · opened ${esc(fullTime(p.opened_at_wib))}${faded}</div>
     </div>`;
     }).join("");
-  const ct=isUnconfirmed()?(paper.events||paper.closed_trades||[]):(paper.closed_trades||[]);
+  const ct=(isUnconfirmed()?(paper.events||paper.closed_trades||[]):(paper.closed_trades||[])).slice(0,8);
   if(!ct.length) $("paperclosed").innerHTML=isUnconfirmed()
       ?`<div class="empty">No unconfirmed paper activity yet. Positions open only when a new unconfirmed BUY?/SELL? appears after the bot starts — historic swings are not back-filled.</div>`
       :`<div class="empty">No closed paper trades yet. Positions open only on new confirmed signals after the bot starts — historic swings are not back-filled.</div>`;
@@ -749,5 +751,6 @@ load();
 loadChartLib();
 setInterval(load, 30000);
 </script>
+<script>(function(){const b=document.getElementById("paperclosedbox");if(!b)return;try{if(localStorage.getItem("zz_recent_open")==="0")b.open=false;}catch(e){}b.addEventListener("toggle",()=>{try{localStorage.setItem("zz_recent_open",b.open?"1":"0")}catch(e){}});})();</script>
 </body>
 </html>
