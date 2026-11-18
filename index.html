@@ -91,7 +91,7 @@ details.panel>summary .meta{display:inline}
 </head>
 <body>
 <div class="wrap">
-  <h1>Zigzag Swing <small>Alert-only · Binance USD-M Futures · times in WIB (UTC+7) · <b style="color:#f59e0b">Paper: COMPOUNDING 5% of balance per trade</b></small></h1>
+  <h1>Zigzag Swing <small>Alert-only · Binance USD-M Futures · times in WIB (UTC+7) · <b style="color:#f59e0b">Paper: COMPOUNDING 5% of balance per trade · TP +$2 net or opposite signal, whichever first</b></small></h1>
   <div id="badge" class="badge load"><span class="dot"></span><span id="btxt">Loading…</span><span class="sub" id="bsub"></span></div>
   <div class="card">
     <details id="panel-status" class="panel" open>
@@ -135,7 +135,7 @@ details.panel>summary .meta{display:inline}
   <div class="card">
     <details id="panel-paper" class="panel" open>
       <summary><h2 id="paperh2">Paper trading · Confirmed <span class="side none" style="margin-left:6px">SIMULATED</span></h2></summary>
-      <div class="meta" id="papernote" style="margin:8px 0">$1,000 start · COMPOUNDING 5% of balance per trade · 1x · 0.05% taker fee · fill at confirmation close</div>
+      <div class="meta" id="papernote" style="margin:8px 0">$1,000 start · COMPOUNDING 5% of balance per trade · TP +$2 net or opposite signal, whichever first · 1x · 0.05% taker fee · fill at confirmation close</div>
       <div class="grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:8px" id="papermetrics">
         <div class="mkt"><div class="k">Balance</div><div class="px" id="p_bal">–</div></div>
         <div class="mkt"><div class="k">Equity</div><div class="px" id="p_eq">–</div></div>
@@ -274,7 +274,7 @@ function utcToSec(iso){
   return Number.isFinite(t)?Math.floor(t/1000):null;
 }
 function reasonLabel(r){
-  const map={opposite_signal:"opposite signal",timeframe_off:"timeframe off",flip:"flip",signal:"signal",dca:"DCA"};
+  const map={opposite_signal:"opposite signal",take_profit:"take profit",timeframe_off:"timeframe off",flip:"flip",signal:"signal",dca:"DCA"};
   return r?(map[r]||r):"—";
 }
 function shortWib(wib){

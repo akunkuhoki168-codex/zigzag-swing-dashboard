@@ -714,8 +714,9 @@ def paper_notes(active_tf: str = "15m") -> tuple[str, str]:
         f"COMPOUNDING: each new position = 5% of current balance (started at $50 on $1,000), 1x. "
         f"Paper only — no real orders or API keys. 0.05% taker fee per side, "
         f"fill at the confirmation candle close. One open position per coin, traded only on the "
-        f"active timeframe ({tf}). An opposite signal closes the trade and flips. "
-        f"Positions are not closed on fade, timeout, stop, or take-profit."
+        f"active timeframe ({tf}). TP +$2 net (after fees) or an opposite signal, "
+        f"whichever first. A take-profit just closes the trade (no flip). "
+        f"Positions are not closed on fade, timeout, or stop."
     )
     unconfirmed = (
         f"COMPOUNDING: each new position = 5% of current balance (started at $50 on $1,000), 1x; DCA legs match the first leg. "
@@ -724,8 +725,9 @@ def paper_notes(active_tf: str = "15m") -> tuple[str, str]:
         f"active timeframe ({tf}). One open position per coin. If that signal fades, the position "
         f"stays open. Every new same-direction unconfirmed signal (including a pivot walk) "
         f"adds another leg of the first leg's notional, with no fade required. Up to 4 adds (5 legs). An opposite unconfirmed "
-        f"signal closes the whole stack and flips. Positions are not closed on fade, timeout, "
-        f"stop, or take-profit."
+        f"signal closes the whole stack and flips. TP +$2 net (after fees) or an opposite "
+        f"signal, whichever first. A take-profit just closes the stack (no flip). "
+        f"Positions are not closed on fade, timeout, or stop."
     )
     return confirmed, unconfirmed
 
