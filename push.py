@@ -224,6 +224,7 @@ def _paper_cfg_from_state() -> dict:
     out: dict = {}
     tfs: list[str] = []
     tps: list[float] = []
+    evs: list[int] = []
     for path in (PAPER_STATE, PAPER_STATE_UNCONF):
         try:
             st = json.loads(path.read_text(encoding="utf-8"))
@@ -234,6 +235,11 @@ def _paper_cfg_from_state() -> dict:
         if st.get("take_profit_usd") is not None:
             try:
                 tps.append(float(st["take_profit_usd"]))
+            except (TypeError, ValueError):
+                pass
+        if st.get("dca_signal_every") is not None:
+            try:
+                evs.append(int(st["dca_signal_every"]))
             except (TypeError, ValueError):
                 pass
         raw_tf = st.get("active_timeframe") or st.get("paper_active_timeframe")
@@ -251,13 +257,16 @@ def _paper_cfg_from_state() -> dict:
         out["paper_active_timeframe"] = tfs[0]
     if tps:
         out["paper_take_profit_usd"] = tps[0]
+    if evs:
+        out["unconfirmed_dca_signal_every"] = evs[0]
     return out
 
 
 def load_yaml_cfg() -> dict:
-    cfg = {"symbols": ["PUMPUSDT", "BTCUSDT", "ETHUSDT"], "timeframes": ["5m", "15m"], "sensitivity": "medium", "paper_active_timeframe": "15m", "paper_take_profit_usd": 2.0}
+    cfg = {"symbols": ["PUMPUSDT", "BTCUSDT", "ETHUSDT"], "timeframes": ["5m", "15m"], "sensitivity": "medium", "paper_active_timeframe": "15m", "paper_take_profit_usd": 2.0, "unconfirmed_dca_signal_every": 3}
     got_tf = False
     got_tp = False
+    got_dca_every = False
     try:
         text = CFG_FILE.read_text()
         try:
@@ -294,14 +303,28 @@ def load_yaml_cfg() -> dict:
                     got_tp = True
                 except (TypeError, ValueError):
                     pass
+            unconf = data.get("unconfirmed")
+            raw_every = None
+            if isinstance(unconf, dict) and unconf.get("dca_signal_every") is not None:
+                raw_every = unconf.get("dca_signal_every")
+            elif data.get("unconfirmed_dca_signal_every") is not None:
+                raw_every = data.get("unconfirmed_dca_signal_every")
+            if raw_every is not None:
+                try:
+                    cfg["unconfirmed_dca_signal_every"] = max(0, int(raw_every))
+                    got_dca_every = True
+                except (TypeError, ValueError):
+                    pass
     except Exception as e:
         log("config read failed", repr(e)[:200])
-    if not got_tf or not got_tp:
+    if not got_tf or not got_tp or not got_dca_every:
         fb = _paper_cfg_from_state()
         if not got_tf and fb.get("paper_active_timeframe"):
             cfg["paper_active_timeframe"] = fb["paper_active_timeframe"]
         if not got_tp and fb.get("paper_take_profit_usd") is not None:
             cfg["paper_take_profit_usd"] = fb["paper_take_profit_usd"]
+        if not got_dca_every and fb.get("unconfirmed_dca_signal_every") is not None:
+            cfg["unconfirmed_dca_signal_every"] = fb["unconfirmed_dca_signal_every"]
     return cfg
 
 
@@ -799,7 +822,16 @@ def load_closed_paper_trades(limit: int = CLOSED_TRADES_LIMIT, path: Path | None
     return rows[-limit:]
 
 
-def paper_notes(active_tf: str = "15m", take_profit_usd: float = 2.0) -> tuple[str, str]:
+def _ordinal(n: int) -> str:
+    n = int(n)
+    if 10 <= (n % 100) <= 20:
+        suf = "th"
+    else:
+        suf = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suf}"
+
+
+def paper_notes(active_tf: str = "15m", take_profit_usd: float = 2.0, dca_signal_every: int = 3, max_add_positions: int = 4) -> tuple[str, str]:
     tf = active_tf or "15m"
     try:
         tp = float(take_profit_usd)
@@ -809,6 +841,20 @@ def paper_notes(active_tf: str = "15m", take_profit_usd: float = 2.0) -> tuple[s
         tp_bit = f"TP +${tp:g} net (after fees) or an opposite signal, whichever first. "
     else:
         tp_bit = "An opposite signal closes the trade and flips. "
+    try:
+        every = max(0, int(dca_signal_every))
+    except (TypeError, ValueError):
+        every = 3
+    try:
+        max_adds = max(0, int(max_add_positions))
+    except (TypeError, ValueError):
+        max_adds = 4
+    if every <= 0:
+        dca_bit = f"Interval DCA is off. Max {max_adds} adds. "
+    elif every == 1:
+        dca_bit = f"DCA: add a leg on every same-direction signal, max {max_adds} adds. "
+    else:
+        dca_bit = f"DCA: add a leg every {_ordinal(every)} same-direction signal, max {max_adds} adds. "
     confirmed = (
         f"COMPOUNDING: each new position = 5% of current balance (started at $50 on $1,000), 1x. "
         f"Paper only — no real orders or API keys. 0.05% taker fee per side, "
@@ -822,8 +868,8 @@ def paper_notes(active_tf: str = "15m", take_profit_usd: float = 2.0) -> tuple[s
         f"Paper only — no real orders or API keys. 0.05% taker fee per side. "
         f"Enters at the close of the candle when a new unconfirmed BUY?/SELL? first appears on the "
         f"active timeframe ({tf}). One open position per coin. If that signal fades, the position "
-        f"stays open. Every new same-direction unconfirmed signal (including a pivot walk) "
-        f"adds another leg of the first leg's notional, with no fade required. Up to 4 adds (5 legs). An opposite unconfirmed "
+        f"stays open. {dca_bit}"
+        f"Each add matches the first leg's notional, with no fade required. An opposite unconfirmed "
         f"signal closes the whole stack and flips. {tp_bit}"
         f"A take-profit just closes the stack (no flip). "
         f"Positions are not closed on fade, timeout, or stop."
@@ -983,7 +1029,8 @@ def build() -> dict:
 
     active_tf = str(cfg.get("paper_active_timeframe") or "15m").lower()
     take_profit_usd = float(cfg.get("paper_take_profit_usd") or 0)
-    confirmed_note, unconfirmed_note = paper_notes(active_tf, take_profit_usd)
+    dca_every = int(cfg.get("unconfirmed_dca_signal_every") or 3)
+    confirmed_note, unconfirmed_note = paper_notes(active_tf, take_profit_usd, dca_every)
     paper = build_paper(prices, PAPER_STATE, PAPER_TRADES, confirmed_note, "confirmed", active_tf)
     paper_unconfirmed = build_paper(
         prices, PAPER_STATE_UNCONF, PAPER_TRADES_UNCONF, unconfirmed_note, "unconfirmed", active_tf,
