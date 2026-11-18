@@ -163,31 +163,101 @@ def ticker_prices(symbols: list[str]) -> dict[str, float]:
 
 
 def _simple_yaml(text: str) -> dict:
-    """Tiny subset parser for config.yaml (lists, scalars, comments)."""
-    data = {}
-    key = None
+    """Tiny subset parser: top-level scalars/lists and one level of nested maps."""
+    data: dict = {}
+    top_key = None
+    sub_key = None
     quotes = "\'" + '"'
+
+    def parse_val(v: str):
+        v = v.strip().strip(quotes)
+        if v == "":
+            return None
+        if v.startswith("[") and v.endswith("]"):
+            inner = v[1:-1].strip()
+            if not inner:
+                return []
+            return [p.strip().strip(quotes) for p in inner.split(",") if p.strip()]
+        return v
+
+    def append_item(item: str) -> None:
+        nonlocal top_key, sub_key
+        if sub_key and isinstance(data.get(top_key), dict):
+            acc = data[top_key].setdefault(sub_key, [])
+            if not isinstance(acc, list):
+                acc = data[top_key][sub_key] = []
+            acc.append(item)
+        elif top_key:
+            acc = data.setdefault(top_key, [])
+            if not isinstance(acc, list):
+                acc = data[top_key] = []
+            acc.append(item)
+
     for raw in text.splitlines():
         line = raw.split("#", 1)[0].rstrip()
         if not line.strip():
             continue
-        if line.startswith("  - ") or line.startswith("\t- "):
-            if key:
-                data.setdefault(key, [])
-                if not isinstance(data[key], list):
-                    data[key] = []
-                data[key].append(line.strip()[2:].strip().strip(quotes))
+        indent = len(line) - len(line.lstrip())
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            append_item(stripped[2:].strip().strip(quotes))
             continue
-        if ":" in line and not line.startswith(" "):
-            k, _, v = line.partition(":")
-            key = k.strip()
-            v = v.strip().strip(quotes)
-            data[key] = v if v else []
+        if ":" not in stripped:
+            continue
+        k, _, v = stripped.partition(":")
+        k = k.strip()
+        val = parse_val(v)
+        if indent == 0:
+            top_key = k
+            sub_key = None
+            data[k] = [] if val is None else val
+        elif top_key:
+            if not isinstance(data.get(top_key), dict):
+                data[top_key] = {}
+            sub_key = k
+            data[top_key][k] = [] if val is None else val
     return data
 
 
+def _paper_cfg_from_state() -> dict:
+    """Fallback active timeframe and TP from the paper state files."""
+    out: dict = {}
+    tfs: list[str] = []
+    tps: list[float] = []
+    for path in (PAPER_STATE, PAPER_STATE_UNCONF):
+        try:
+            st = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(st, dict):
+            continue
+        if st.get("take_profit_usd") is not None:
+            try:
+                tps.append(float(st["take_profit_usd"]))
+            except (TypeError, ValueError):
+                pass
+        raw_tf = st.get("active_timeframe") or st.get("paper_active_timeframe")
+        if raw_tf:
+            tfs.append(str(raw_tf).strip().lower())
+        pos_tfs = {
+            str(p.get("timeframe") or "").strip().lower()
+            for p in (st.get("positions") or {}).values()
+            if isinstance(p, dict) and p.get("timeframe")
+        }
+        pos_tfs.discard("")
+        if len(pos_tfs) == 1:
+            tfs.append(next(iter(pos_tfs)))
+    if tfs:
+        out["paper_active_timeframe"] = tfs[0]
+    if tps:
+        out["paper_take_profit_usd"] = tps[0]
+    return out
+
+
 def load_yaml_cfg() -> dict:
-    cfg = {"symbols": ["PUMPUSDT", "BTCUSDT", "ETHUSDT"], "timeframes": ["5m", "15m"], "sensitivity": "medium", "paper_active_timeframe": "15m"}
+    cfg = {"symbols": ["PUMPUSDT", "BTCUSDT", "ETHUSDT"], "timeframes": ["5m", "15m"], "sensitivity": "medium", "paper_active_timeframe": "15m", "paper_take_profit_usd": 2.0}
+    got_tf = False
+    got_tp = False
     try:
         text = CFG_FILE.read_text()
         try:
@@ -207,10 +277,31 @@ def load_yaml_cfg() -> dict:
             paper = data.get("paper")
             if isinstance(paper, dict) and paper.get("active_timeframe"):
                 cfg["paper_active_timeframe"] = str(paper["active_timeframe"]).strip().lower()
+                got_tf = True
             elif data.get("paper_active_timeframe"):
                 cfg["paper_active_timeframe"] = str(data["paper_active_timeframe"]).strip().lower()
+                got_tf = True
+            raw_tp = None
+            if isinstance(paper, dict) and paper.get("take_profit_usd") is not None:
+                raw_tp = paper.get("take_profit_usd")
+            elif data.get("take_profit_usd") is not None:
+                raw_tp = data.get("take_profit_usd")
+            elif data.get("paper_take_profit_usd") is not None:
+                raw_tp = data.get("paper_take_profit_usd")
+            if raw_tp is not None:
+                try:
+                    cfg["paper_take_profit_usd"] = max(0.0, float(raw_tp))
+                    got_tp = True
+                except (TypeError, ValueError):
+                    pass
     except Exception as e:
         log("config read failed", repr(e)[:200])
+    if not got_tf or not got_tp:
+        fb = _paper_cfg_from_state()
+        if not got_tf and fb.get("paper_active_timeframe"):
+            cfg["paper_active_timeframe"] = fb["paper_active_timeframe"]
+        if not got_tp and fb.get("paper_take_profit_usd") is not None:
+            cfg["paper_take_profit_usd"] = fb["paper_take_profit_usd"]
     return cfg
 
 
@@ -708,14 +799,22 @@ def load_closed_paper_trades(limit: int = CLOSED_TRADES_LIMIT, path: Path | None
     return rows[-limit:]
 
 
-def paper_notes(active_tf: str = "15m") -> tuple[str, str]:
+def paper_notes(active_tf: str = "15m", take_profit_usd: float = 2.0) -> tuple[str, str]:
     tf = active_tf or "15m"
+    try:
+        tp = float(take_profit_usd)
+    except (TypeError, ValueError):
+        tp = 2.0
+    if tp > 0:
+        tp_bit = f"TP +${tp:g} net (after fees) or an opposite signal, whichever first. "
+    else:
+        tp_bit = "An opposite signal closes the trade and flips. "
     confirmed = (
         f"COMPOUNDING: each new position = 5% of current balance (started at $50 on $1,000), 1x. "
         f"Paper only — no real orders or API keys. 0.05% taker fee per side, "
         f"fill at the confirmation candle close. One open position per coin, traded only on the "
-        f"active timeframe ({tf}). TP +$2 net (after fees) or an opposite signal, "
-        f"whichever first. A take-profit just closes the trade (no flip). "
+        f"active timeframe ({tf}). {tp_bit}"
+        f"A take-profit just closes the trade (no flip). "
         f"Positions are not closed on fade, timeout, or stop."
     )
     unconfirmed = (
@@ -725,8 +824,8 @@ def paper_notes(active_tf: str = "15m") -> tuple[str, str]:
         f"active timeframe ({tf}). One open position per coin. If that signal fades, the position "
         f"stays open. Every new same-direction unconfirmed signal (including a pivot walk) "
         f"adds another leg of the first leg's notional, with no fade required. Up to 4 adds (5 legs). An opposite unconfirmed "
-        f"signal closes the whole stack and flips. TP +$2 net (after fees) or an opposite "
-        f"signal, whichever first. A take-profit just closes the stack (no flip). "
+        f"signal closes the whole stack and flips. {tp_bit}"
+        f"A take-profit just closes the stack (no flip). "
         f"Positions are not closed on fade, timeout, or stop."
     )
     return confirmed, unconfirmed
@@ -883,7 +982,8 @@ def build() -> dict:
         pass
 
     active_tf = str(cfg.get("paper_active_timeframe") or "15m").lower()
-    confirmed_note, unconfirmed_note = paper_notes(active_tf)
+    take_profit_usd = float(cfg.get("paper_take_profit_usd") or 0)
+    confirmed_note, unconfirmed_note = paper_notes(active_tf, take_profit_usd)
     paper = build_paper(prices, PAPER_STATE, PAPER_TRADES, confirmed_note, "confirmed", active_tf)
     paper_unconfirmed = build_paper(
         prices, PAPER_STATE_UNCONF, PAPER_TRADES_UNCONF, unconfirmed_note, "unconfirmed", active_tf,
