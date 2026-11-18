@@ -91,7 +91,7 @@ details.panel>summary .meta{display:inline}
 </head>
 <body>
 <div class="wrap">
-  <h1>Zigzag Swing <small>Alert-only · Binance USD-M Futures · times in WIB (UTC+7) · <b style="color:#f59e0b">Paper: COMPOUNDING 5% of balance per trade · TP +$2 net or opposite signal, whichever first</b></small></h1>
+  <h1>Zigzag Swing <small>Alert-only · Binance USD-M Futures · times in WIB (UTC+7) · <b style="color:#f59e0b">Paper: COMPOUNDING 5% of balance margin x 3 leverage per trade · TP +$2 net or opposite signal, whichever first · cooldown 3m after close</b></small></h1>
   <div id="badge" class="badge load"><span class="dot"></span><span id="btxt">Loading…</span><span class="sub" id="bsub"></span></div>
   <div class="card">
     <details id="panel-status" class="panel" open>
@@ -135,7 +135,7 @@ details.panel>summary .meta{display:inline}
   <div class="card">
     <details id="panel-paper" class="panel" open>
       <summary><h2 id="paperh2">Paper trading · Confirmed <span class="side none" style="margin-left:6px">SIMULATED</span></h2></summary>
-      <div class="meta" id="papernote" style="margin:8px 0">$1,000 start · COMPOUNDING 5% of balance per trade · TP +$2 net or opposite signal, whichever first · 1x · 0.05% taker fee · fill at confirmation close</div>
+      <div class="meta" id="papernote" style="margin:8px 0">$1,000 start · COMPOUNDING 5% of balance margin × 3 leverage · TP +$2 net or opposite signal or liquidation, whichever first · cooldown 3m after close · DCA every 3rd same-direction signal, max 4 adds · 0.05% taker fee · fill at confirmation close</div>
       <div class="grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:8px" id="papermetrics">
         <div class="mkt"><div class="k">Balance</div><div class="px" id="p_bal">–</div></div>
         <div class="mkt"><div class="k">Equity</div><div class="px" id="p_eq">–</div></div>
@@ -274,7 +274,7 @@ function utcToSec(iso){
   return Number.isFinite(t)?Math.floor(t/1000):null;
 }
 function reasonLabel(r){
-  const map={opposite_signal:"opposite signal",take_profit:"take profit",timeframe_off:"timeframe off",flip:"flip",signal:"signal",dca:"DCA"};
+  const map={opposite_signal:"opposite signal",take_profit:"take profit",liquidation:"liquidation",timeframe_off:"timeframe off",flip:"flip",signal:"signal",dca:"DCA"};
   return r?(map[r]||r):"—";
 }
 function shortWib(wib){
@@ -619,13 +619,14 @@ function render(d, live){
   else $("paperpos").innerHTML=pos.map(p=>{
       const legs=p.leg_count||((p.legs&&p.legs.length)||1);
       const faded=p.faded?` · faded`:"";
+      const lev=p.leverage!=null && p.leverage!=="" ? ` · ${esc(String(p.leverage))}x` : "";
       const avg=isUnconfirmed()&&legs>1
         ?`avg entry ${esc(fmtPx(p.avg_entry_txt||p.entry_txt||p.avg_entry||p.entry))} · ${legs} legs`
         :(isUnconfirmed()?`avg entry ${esc(fmtPx(p.avg_entry_txt||p.entry_txt||p.avg_entry||p.entry))}${legs>1?" · "+legs+" legs":" · 1 leg"}`:`entry ${esc(fmtPx(p.entry_txt||p.entry))}`);
       return `<div class="it">
       <div class="top"><button type="button" class="sym js-jump" data-sym="${esc(p.symbol)}" data-tf="${esc(p.timeframe)}">${esc(p.symbol)} <span class="tf">${esc(p.timeframe)}</span></button>${pill(p.side)}${p.faded?'<span class="side none">faded</span>':''}
         <span class="${pnlClass(p.unrealized)}">${esc(money(p.unrealized,true))}</span></div>
-      <div class="det">${avg} · mark ${esc(fmtPx(live[p.symbol]||p.mark_txt||p.mark))} · opened ${esc(fullTime(p.opened_at_wib))}${faded}</div>
+      <div class="det">${avg}${lev} · mark ${esc(fmtPx(live[p.symbol]||p.mark_txt||p.mark))} · opened ${esc(fullTime(p.opened_at_wib))}${faded}</div>
     </div>`;
     }).join("");
   const ct=(isUnconfirmed()?(paper.events||paper.closed_trades||[]):(paper.closed_trades||[])).slice(0,8);
