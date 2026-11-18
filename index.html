@@ -407,7 +407,7 @@ function ensureChart(){
     layout:{background:{color:"#0b0f14"},textColor:"#8b98a5",fontSize:11},
     grid:{vertLines:{color:"#222b36"},horzLines:{color:"#222b36"}},
     rightPriceScale:{borderColor:"#222b36"},
-    timeScale:{borderColor:"#222b36",timeVisible:true,secondsVisible:false},
+    timeScale:{borderColor:"#222b36",timeVisible:true,secondsVisible:false,barSpacing:10,minBarSpacing:4,rightOffset:5},
     crosshair:{vertLine:{color:"#8b98a5"},horzLine:{color:"#8b98a5"}},
     localization:{timeFormatter:fmtWibTick,locale:"en-GB"},
     width:el.clientWidth, height:el.clientHeight||260,
@@ -579,7 +579,8 @@ async function loadCandles(symbol, tf){
     liveChart.candles=candles;
     liveChart.series.setData(candles);
     liveChart.series.setMarkers(collectMarkers(symbol, tf, candles, lastData));
-    liveChart.tv.timeScale().fitContent();
+    { const n=candles.length, show=Math.min(n, window.innerWidth<700?45:90);
+      if(n) liveChart.tv.timeScale().setVisibleLogicalRange({from:n-show, to:n+4}); }
     const last=candles[candles.length-1];
     $("chartmeta").textContent=symbol+"  "+tf+"  ·  "+(last?last.close:"—")+"  ·  "+candles.length+" bars";
     startWs(symbol, tf);
