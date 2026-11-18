@@ -97,6 +97,8 @@ details.panel>summary .meta{display:inline}
 .settings-token{font-size:12px;color:var(--mut);margin:8px 0;line-height:1.45}
 .settings-token input[type="password"]{width:min(100%,360px);background:var(--bg);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;margin:6px 0;display:block}
 .settings-token a{color:var(--acc)}
+.settings-token input[type="password"]:disabled{opacity:.5;background:var(--line);cursor:not-allowed}
+.settings-token .tok-ok{color:#22c55e;font-weight:600;margin-right:8px}
 #set_status{font-size:12px;min-height:1.4em;margin:6px 0 2px;color:var(--mut)}
 #set_status.ok{color:var(--g)}#set_status.wait{color:var(--a)}#set_status.err{color:var(--r)}
 </style>
@@ -113,7 +115,7 @@ details.panel>summary .meta{display:inline}
   </div>
   <div class="card">
     <details id="panel-trade-settings" class="panel">
-      <summary><h2>Trade settings</h2> <span class="meta">paper only · both accounts</span><button type="button" id="set_save" style="margin-left:auto">Save settings</button></summary>
+      <summary><h2>Trade settings</h2> <span class="meta">paper only · both accounts</span></summary>
       <div class="settings-grid" style="margin-top:10px">
         <label>Timeframe
           <select id="set_tf">
@@ -147,8 +149,11 @@ details.panel>summary .meta{display:inline}
         Scope it to the <b>zigzag-swing-dashboard</b> repo only, with Contents read/write.
         <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Create a token</a>.
         <input id="set_token" type="password" placeholder="ghp_… or github_pat_… (optional)" autocomplete="off" spellcheck="false">
-        <a href="#" id="set_forget">forget token</a>
+        <span id="set_tok_ok" class="tok-ok" style="display:none">Token saved ✓ (locked)</span><a href="#" id="set_forget">forget token</a>
         Without a token, Save opens a prefilled GitHub issue in the dashboard repo for the box poller to apply.
+      </div>
+      <div class="settings-actions">
+        <button type="button" id="set_save">Save settings</button>
       </div>
       <div id="set_status">Live values load from the published bot settings.</div>
     </details>
@@ -1107,7 +1112,7 @@ async function onSaveSettings(){
     const settings=readSettingsForm();
     settingsDirty=true;
     const token=($("set_token")&&$("set_token").value.trim())||loadToken();
-    if(token) saveToken(token);
+    if(token){ saveToken(token); lockToken(true); }
     if(btn) btn.disabled=true;
     if(token){
       setStatus("Saving to GitHub…", "wait");
@@ -1129,15 +1134,21 @@ async function onSaveSettings(){
     if(btn) btn.disabled=false;
   }
 }
+function lockToken(on){
+  const el=$("set_token"), ok=$("set_tok_ok");
+  if(el){ el.disabled=!!on; el.title=on?"Token saved in this browser. Use forget token to change it.":""; }
+  if(ok) ok.style.display=on?"inline":"none";
+}
 function bindTradeSettings(){
   const tokenEl=$("set_token");
   if(tokenEl && !tokenEl.dataset.bound){
     tokenEl.dataset.bound="1";
     const saved=loadToken();
     if(saved) tokenEl.value=saved;
+    lockToken(!!saved);
     tokenEl.addEventListener("change",()=>{
       const v=tokenEl.value.trim();
-      if(v) saveToken(v);
+      if(v){ saveToken(v); lockToken(true); }
     });
   }
   const forget=$("set_forget");
@@ -1147,13 +1158,14 @@ function bindTradeSettings(){
       ev.preventDefault();
       saveToken("");
       if(tokenEl) tokenEl.value="";
+      lockToken(false);
       setStatus("Token forgotten in this browser.", "");
     });
   }
   const save=$("set_save");
   if(save && !save.dataset.bound){
     save.dataset.bound="1";
-    save.addEventListener("click", e=>{ e.preventDefault(); e.stopPropagation(); onSaveSettings(e); });
+    save.addEventListener("click", onSaveSettings);
   }
   ["set_tf","set_tp","set_cd","set_lev","set_size","set_dca","set_maxadd"].forEach(id=>{
     const el=$(id);
