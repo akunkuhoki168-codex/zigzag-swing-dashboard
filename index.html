@@ -75,6 +75,18 @@ td:not(:first-child),th:not(:first-child){text-align:right}
 .chart-leg .legend-unconfirmed{display:none}
 body.mode-unconfirmed .chart-leg .legend-confirmed{display:none}
 body.mode-unconfirmed .chart-leg .legend-unconfirmed{display:inline-flex}
+details.panel>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;flex-wrap:wrap;user-select:none}
+details.panel>summary::-webkit-details-marker{display:none}
+details.panel>summary::before{content:"▾";color:var(--mut);font-size:11px;line-height:1;width:12px;flex:none}
+details.panel:not([open])>summary::before{content:"▸"}
+details.panel>summary h2{margin:0;display:inline}
+details.panel.nested{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+.trades-wrap{max-height:420px;overflow:auto;-webkit-overflow-scrolling:touch;margin-top:8px}
+.trades-wrap table{min-width:820px}
+.trades-wrap th{position:sticky;top:0;background:var(--card);z-index:1;padding-top:4px}
+.trades-sum{display:flex;flex-wrap:wrap;gap:6px 14px;color:var(--mut);font-size:12px;margin-top:8px}
+.trades-sum b{color:var(--tx);font-weight:650}
+details.panel>summary .meta{display:inline}
 </style>
 </head>
 <body>
@@ -82,63 +94,89 @@ body.mode-unconfirmed .chart-leg .legend-unconfirmed{display:inline-flex}
   <h1>Zigzag Swing <small>Alert-only · Binance USD-M Futures · times in WIB (UTC+7) · <b style="color:#f59e0b">Paper: COMPOUNDING 5% of balance per trade</b></small></h1>
   <div id="badge" class="badge load"><span class="dot"></span><span id="btxt">Loading…</span><span class="sub" id="bsub"></span></div>
   <div class="card">
-    <div class="meta" id="botmeta">Waiting for data…</div>
-  </div>
-  <div class="card" id="modecard">
-    <h2 style="margin:0 0 8px">Signals</h2>
-    <div class="seg" id="modetoggle">
-      <button type="button" data-mode="confirmed" class="on">Confirmed</button>
-      <button type="button" data-mode="unconfirmed">Unconfirmed (repaints)</button>
-    </div>
-    <div class="meta" id="modeexplain">Pivot confirmed after the k×ATR reversal; final, non-repainting.</div>
-  </div>
-  <div class="card" id="chartcard">
-    <div class="chart-head">
-      <h2 style="margin:0">Live chart</h2>
-      <div class="seg" id="tftoggle">
-        <button type="button" data-tf="5m" class="on">5m</button>
-        <button type="button" data-tf="15m">15m</button>
-      </div>
-    </div>
-    <div class="chips" id="symchips"></div>
-    <div id="chartmeta">The list loads first; the chart follows.</div>
-    <div id="chartbox"></div>
-    <div class="chart-leg">
-      <span class="legend-confirmed"><i class="dotk" style="background:#22c55e"></i>BUY pivot</span>
-      <span class="legend-confirmed"><i class="dotk" style="background:#ef4444"></i>SELL pivot</span>
-      <span class="legend-unconfirmed"><i class="dotk" style="background:#f59e0b"></i>BUY? / SELL? / faded</span>
-      <span><i class="dotk" style="background:#3b82f6"></i>Paper IN / OUT</span>
-      <span>Times in WIB · USD-M Futures</span>
-    </div>
-  </div>
-  <div class="card">
-    <h2 id="paperh2">Paper trading · Confirmed <span class="side none" style="margin-left:6px">SIMULATED</span></h2>
-    <div class="meta" id="papernote" style="margin-bottom:8px">$1,000 start · COMPOUNDING 5% of balance per trade · 1x · 0.05% taker fee · fill at confirmation close</div>
-    <div class="grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:8px" id="papermetrics">
-      <div class="mkt"><div class="k">Balance</div><div class="px" id="p_bal">–</div></div>
-      <div class="mkt"><div class="k">Equity</div><div class="px" id="p_eq">–</div></div>
-      <div class="mkt"><div class="k">Realized P&amp;L</div><div class="px" id="p_rp">–</div></div>
-      <div class="mkt"><div class="k">Unrealized P&amp;L</div><div class="px" id="p_up">–</div></div>
-      <div class="mkt"><div class="k">Win rate</div><div class="px" id="p_wr">–</div></div>
-      <div class="mkt"><div class="k">Open positions</div><div class="px" id="p_oc">–</div></div>
-    </div>
-    <h2 style="margin-top:10px">Open positions</h2>
-    <div id="paperpos"><div class="empty">No open paper positions</div></div>
-    <details id="paperclosedbox" open style="margin-top:12px">
-      <summary style="cursor:pointer;list-style:revert"><h2 id="paperclosedh2" style="display:inline;margin:0">Recent closed trades</h2> <span class="meta">(last 8 · tap to collapse)</span></summary>
-      <div id="paperclosed" style="margin-top:8px"><div class="empty">No closed paper trades yet</div></div>
+    <details id="panel-status" class="panel" open>
+      <summary><h2>Bot status</h2></summary>
+      <div class="meta" id="botmeta" style="margin-top:8px">Waiting for data…</div>
     </details>
   </div>
-  <h2>Watched markets <small id="watchcount" style="color:var(--mut);font-weight:400">30 mid-cap perps · 5m &amp; 15m</small></h2>
-  <div class="grid" id="markets"><div class="empty">Loading markets…</div></div>
-  <div class="card" style="margin-top:12px">
-    <h2 id="alertsh2">Recent alerts · Confirmed</h2>
-    <div id="alerts"><div class="empty">Loading…</div></div>
+  <div class="card" id="modecard">
+    <details id="panel-signals" class="panel" open>
+      <summary><h2>Signals</h2></summary>
+      <div class="seg" id="modetoggle" style="margin-top:8px">
+        <button type="button" data-mode="confirmed" class="on">Confirmed</button>
+        <button type="button" data-mode="unconfirmed">Unconfirmed (repaints)</button>
+      </div>
+      <div class="meta" id="modeexplain">Pivot confirmed after the k×ATR reversal; final, non-repainting.</div>
+    </details>
+  </div>
+  <div class="card" id="chartcard">
+    <details id="panel-chart" class="panel" open>
+      <summary><h2>Live chart</h2></summary>
+      <div class="chart-head" style="margin-top:8px">
+        <div class="seg" id="tftoggle">
+          <button type="button" data-tf="5m" class="on">5m</button>
+          <button type="button" data-tf="15m">15m</button>
+        </div>
+      </div>
+      <div class="chips" id="symchips"></div>
+      <div id="chartmeta">The list loads first; the chart follows.</div>
+      <div id="chartbox"></div>
+      <div class="chart-leg">
+        <span class="legend-confirmed"><i class="dotk" style="background:#22c55e"></i>BUY pivot</span>
+        <span class="legend-confirmed"><i class="dotk" style="background:#ef4444"></i>SELL pivot</span>
+        <span class="legend-unconfirmed"><i class="dotk" style="background:#f59e0b"></i>BUY? / SELL? / faded</span>
+        <span><i class="dotk" style="background:#3b82f6"></i>Open paper IN</span>
+        <span><i class="dotk" style="background:#22c55e"></i>Closed win IN/OUT</span>
+        <span><i class="dotk" style="background:#ef4444"></i>Closed loss IN/OUT</span>
+        <span>Times in WIB · USD-M Futures</span>
+      </div>
+    </details>
   </div>
   <div class="card">
-    <h2>ADX 1-minute scanner</h2>
-    <div class="meta" style="margin-bottom:8px">NEAR, INJ, RENDER, FET, ARB · ADX ≥ 25 and rising with a fresh +DI/−DI cross</div>
-    <div id="adx"><div class="empty">Loading…</div></div>
+    <details id="panel-paper" class="panel" open>
+      <summary><h2 id="paperh2">Paper trading · Confirmed <span class="side none" style="margin-left:6px">SIMULATED</span></h2></summary>
+      <div class="meta" id="papernote" style="margin:8px 0">$1,000 start · COMPOUNDING 5% of balance per trade · 1x · 0.05% taker fee · fill at confirmation close</div>
+      <div class="grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:8px" id="papermetrics">
+        <div class="mkt"><div class="k">Balance</div><div class="px" id="p_bal">–</div></div>
+        <div class="mkt"><div class="k">Equity</div><div class="px" id="p_eq">–</div></div>
+        <div class="mkt"><div class="k">Realized P&amp;L</div><div class="px" id="p_rp">–</div></div>
+        <div class="mkt"><div class="k">Unrealized P&amp;L</div><div class="px" id="p_up">–</div></div>
+        <div class="mkt"><div class="k">Win rate</div><div class="px" id="p_wr">–</div></div>
+        <div class="mkt"><div class="k">Open positions</div><div class="px" id="p_oc">–</div></div>
+      </div>
+      <details id="panel-openpos" class="panel nested" open>
+        <summary><h2>Open positions</h2></summary>
+        <div id="paperpos" style="margin-top:8px"><div class="empty">No open paper positions</div></div>
+      </details>
+      <details id="paperclosedbox" class="panel nested" open>
+        <summary><h2 id="paperclosedh2">Recent closed trades</h2> <span class="meta">(last 8 · tap to collapse)</span></summary>
+        <div id="paperclosed" style="margin-top:8px"><div class="empty">No closed paper trades yet</div></div>
+      </details>
+      <details id="panel-closedtrades" class="panel nested" open>
+        <summary><h2>Closed trades</h2> <span class="meta" id="closedlisthint">(full list · newest first)</span></summary>
+        <div class="trades-sum" id="closedsum"></div>
+        <div id="closedtrades" class="trades-wrap"><div class="empty">No closed paper trades yet</div></div>
+      </details>
+    </details>
+  </div>
+  <div class="card">
+    <details id="panel-markets" class="panel" open>
+      <summary><h2>Watched markets</h2> <span class="meta" id="watchcount">30 mid-cap perps · 5m &amp; 15m</span></summary>
+      <div class="grid" id="markets" style="margin-top:8px"><div class="empty">Loading markets…</div></div>
+    </details>
+  </div>
+  <div class="card">
+    <details id="panel-alerts" class="panel" open>
+      <summary><h2 id="alertsh2">Recent alerts · Confirmed</h2></summary>
+      <div id="alerts" style="margin-top:8px"><div class="empty">Loading…</div></div>
+    </details>
+  </div>
+  <div class="card">
+    <details id="panel-adx" class="panel" open>
+      <summary><h2>ADX 1-minute scanner</h2></summary>
+      <div class="meta" style="margin:8px 0">NEAR, INJ, RENDER, FET, ARB · ADX ≥ 25 and rising with a fresh +DI/−DI cross</div>
+      <div id="adx"><div class="empty">Loading…</div></div>
+    </details>
   </div>
   <footer>
     Alerts only — no orders are placed. Not financial advice.<br>
@@ -234,6 +272,30 @@ function utcToSec(iso){
   if(!iso) return null;
   const t=Date.parse(String(iso).replace(" ","T"));
   return Number.isFinite(t)?Math.floor(t/1000):null;
+}
+function reasonLabel(r){
+  const map={opposite_signal:"opposite signal",timeframe_off:"timeframe off",flip:"flip",signal:"signal",dca:"DCA"};
+  return r?(map[r]||r):"—";
+}
+function shortWib(wib){
+  const s=fullTime(wib).replace(/ WIB$/,"");
+  const m=String(s).match(/(\d{4})-(\d{2})-(\d{2}) (\d{2}:\d{2})/);
+  return m?`${m[2]}-${m[3]} ${m[4]}`:(s||"—");
+}
+function tradeNotional(t){
+  if(t.total_notional!=null && t.total_notional!=="") return Number(t.total_notional);
+  const e=Number(t.entry), q=Number(t.qty);
+  if(Number.isFinite(e)&&Number.isFinite(q)) return e*q;
+  return null;
+}
+function tradePnlPct(t){
+  if(t.pnl_pct!=null && t.pnl_pct!=="") return Number(t.pnl_pct);
+  const n=tradeNotional(t), p=Number(t.pnl);
+  if(n && Number.isFinite(p)) return 100*p/n;
+  return null;
+}
+function closedOnly(rows){
+  return (rows||[]).filter(t=>!t.action || String(t.action).toUpperCase()==="CLOSE");
 }
 async function livePrices(symbols){
   try{
@@ -362,16 +424,24 @@ function collectMarkers(symbol, tf, candles, data){
       add(wibToSec(leg.opened_at_wib) || utcToSec(leg.opened_at_utc), {position:p.side==="LONG"?"belowBar":"aboveBar", color:"#3b82f6", shape:"square", text:i===0?"IN":"ADD"});
     });
   }
-  for(const t of (paper.events||paper.closed_trades||[])){
+  for(const t of (paper.closed_trades||[])){
+    if(t.symbol!==symbol || (t.timeframe||t.tf)!==tf) continue;
+    const act=(t.action||"CLOSE").toUpperCase();
+    if(act && act!=="CLOSE") continue;
+    const long=t.side==="LONG";
+    const win=t.win===true || Number(t.pnl)>0;
+    const col=win?"#22c55e":"#ef4444";
+    const sideBit=long?"L":"S";
+    add(wibToSec(t.opened_at_wib) || utcToSec(t.opened_at_utc), {position:long?"belowBar":"aboveBar", color:col, shape:"circle", text:"IN "+sideBit});
+    add(wibToSec(t.at_wib) || utcToSec(t.at_utc) || utcToSec(t.candle_close_utc), {position:long?"aboveBar":"belowBar", color:col, shape:long?"arrowDown":"arrowUp", text:"OUT "+sideBit});
+  }
+  for(const t of (paper.events||[])){
     if(t.symbol!==symbol || (t.timeframe||t.tf)!==tf) continue;
     const act=(t.action||"").toUpperCase();
-    if(act==="FADED"||act==="REPAINTED"||t.reason==="repainted"&&act!=="CLOSE"){
+    if(act==="FADED"||act==="REPAINTED"||(t.reason==="repainted"&&act!=="CLOSE")){
       add(wibToSec(t.at_wib) || utcToSec(t.at_utc), {position:t.side==="LONG"?"aboveBar":"belowBar", color:"#f59e0b", shape:"circle", text:"FADED"});
     } else if(act==="ADD"){
       add(wibToSec(t.at_wib) || utcToSec(t.at_utc), {position:t.side==="LONG"?"belowBar":"aboveBar", color:"#3b82f6", shape:"square", text:"ADD"});
-    } else if(act==="CLOSE"){
-      add(wibToSec(t.opened_at_wib) || utcToSec(t.opened_at_utc), {position:t.side==="LONG"?"belowBar":"aboveBar", color:"#3b82f6", shape:"square", text:"IN"});
-      add(wibToSec(t.at_wib) || utcToSec(t.at_utc) || utcToSec(t.candle_close_utc), {position:t.side==="LONG"?"aboveBar":"belowBar", color:"#60a5fa", shape:"square", text:"OUT"});
     }
   }
   out.sort((a,b)=>a.time-b.time);
@@ -483,7 +553,11 @@ function selectChart(symbol, tf, scroll){
   }
   document.querySelectorAll(".mkt[data-sym]").forEach(el=>el.classList.toggle("sel", el.getAttribute("data-sym")===symbol));
   if(changed || !liveChart.ready) loadCandles(symbol, nextTf);
-  if(scroll) $("chartcard").scrollIntoView({behavior:"smooth",block:"start"});
+  if(scroll){
+    const panel=$("panel-chart");
+    if(panel) panel.open=true;
+    $("chartcard").scrollIntoView({behavior:"smooth",block:"start"});
+  }
 }
 $("modetoggle").addEventListener("click", ev=>{
   const b=ev.target.closest("button[data-mode]");
@@ -580,6 +654,50 @@ function render(d, live){
       <div class="det">${esc(fullTime(t.at_wib))} · entry ${esc(fmtPx(t.entry_txt||t.entry))} → exit ${esc(fmtPx(t.exit_txt||t.exit))}${t.leg_count?" · "+esc(String(t.leg_count))+" legs":""}${t.reason==="repainted"?" · repainted":(t.reason?" · "+esc(t.reason):"")}${t.win?" · win":" · loss"}</div>
     </div>`;
     }).join("");
+
+  const allClosed=closedOnly(paper.closed_trades||[]);
+  const hint=$("closedlisthint");
+  const sumEl=$("closedsum");
+  const listEl=$("closedtrades");
+  if(!allClosed.length){
+    if(hint) hint.textContent="(full list · newest first)";
+    if(sumEl) sumEl.innerHTML="";
+    if(listEl) listEl.innerHTML=`<div class="empty">No closed paper trades yet</div>`;
+  } else {
+    let wins=0, losses=0, total=0;
+    for(const t of allClosed){
+      const pnl=Number(t.pnl);
+      if(Number.isFinite(pnl)) total+=pnl;
+      if(t.win===true || pnl>0) wins++;
+      else losses++;
+    }
+    const official=paper.closed_count;
+    const shownBit=official && official>allClosed.length
+      ?`showing last ${allClosed.length} of ${official}`
+      :`${allClosed.length} trade${allClosed.length===1?"":"s"}`;
+    if(hint) hint.textContent=`(${shownBit} · newest first)`;
+    if(sumEl) sumEl.innerHTML=`<span><b>${esc(String(allClosed.length))}</b> closed</span><span><b class="pos">${wins}W</b> / <b class="neg">${losses}L</b></span><span>Listed P&amp;L <b class="${total>0?"pos":(total<0?"neg":"")}">${esc(money(total,true))}</b></span>${official && official>allClosed.length?`<span class="meta">Account total ${esc(String(official))} closes · realized ${esc(money(paper.realized_pnl,true))}</span>`:""}`;
+    if(listEl) listEl.innerHTML=`<table><thead><tr><th>Coin</th><th>Side</th><th>TF</th><th>Entry</th><th>Exit</th><th>Opened</th><th>Closed</th><th>Legs</th><th>Reason</th><th>Net P&amp;L</th><th>%</th></tr></thead><tbody>`+
+      allClosed.map(t=>{
+        const pnl=Number(t.pnl);
+        const pct=tradePnlPct(t);
+        const pctTxt=pct==null||!Number.isFinite(pct)? "—" : (pct>0?"+":"")+pct.toFixed(2)+"%";
+        const legs=t.leg_count!=null?t.leg_count:1;
+        return `<tr>
+          <td><button type="button" class="sym js-jump" data-sym="${esc(t.symbol)}" data-tf="${esc(t.timeframe||t.tf||"5m")}">${esc((t.symbol||"").replace("USDT",""))}</button></td>
+          <td>${pill(t.side)}</td>
+          <td>${esc(t.timeframe||t.tf||"—")}</td>
+          <td>${esc(fmtPx(t.entry_txt||t.entry)||"—")}</td>
+          <td>${esc(fmtPx(t.exit_txt||t.exit)||"—")}</td>
+          <td title="${esc(fullTime(t.opened_at_wib||t.opened_at_utc))}">${esc(shortWib(t.opened_at_wib||t.opened_at_utc))}</td>
+          <td title="${esc(fullTime(t.at_wib||t.at_utc))}">${esc(shortWib(t.at_wib||t.at_utc))}</td>
+          <td>${esc(String(legs))}</td>
+          <td>${esc(reasonLabel(t.reason))}</td>
+          <td class="${pnlClass(pnl)}">${esc(t.pnl_txt||money(pnl,true))}</td>
+          <td class="${pnlClass(pct)}">${esc(pctTxt)}</td>
+        </tr>`;
+      }).join("")+`</tbody></table>`;
+  }
 
   const mkts=d.markets||[];
   const order=[]; const by={};
@@ -753,11 +871,37 @@ function onChartLibReady(){
   liveChart.libFailed=false;
   if(liveChart.symbol) loadCandles(liveChart.symbol, liveChart.tf||"5m");
 }
+function resizeLiveChart(){
+  if(!liveChart.tv) return;
+  const box=$("chartbox");
+  if(!box || box.clientWidth<20) return;
+  liveChart.tv.applyOptions({width:box.clientWidth,height:box.clientHeight||260});
+}
+function bindCollapsiblePanels(){
+  document.querySelectorAll("details.panel[id]").forEach(el=>{
+    if(el.dataset.bound) return;
+    el.dataset.bound="1";
+    const key="zz_panel_open:"+el.id;
+    try{
+      let v=localStorage.getItem(key);
+      if(v==null && el.id==="paperclosedbox") v=localStorage.getItem("zz_recent_open");
+      if(v==="0") el.open=false;
+      else if(v==="1") el.open=true;
+    }catch(e){}
+    el.addEventListener("toggle",()=>{
+      try{
+        localStorage.setItem(key, el.open?"1":"0");
+        if(el.id==="paperclosedbox") localStorage.setItem("zz_recent_open", el.open?"1":"0");
+      }catch(e){}
+      if(el.open) resizeLiveChart();
+    });
+  });
+}
+bindCollapsiblePanels();
 load();
 loadChartLib();
 setInterval(load, 30000);
 </script>
-<script>(function(){const b=document.getElementById("paperclosedbox");if(!b)return;try{if(localStorage.getItem("zz_recent_open")==="0")b.open=false;}catch(e){}b.addEventListener("toggle",()=>{try{localStorage.setItem("zz_recent_open",b.open?"1":"0")}catch(e){}});})();</script>
 <script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));}</script>
 </body>
 </html>

@@ -651,7 +651,35 @@ def scan_adx_readonly() -> list:
 
 
 
-def load_closed_paper_trades(limit: int = 40, path: Path | None = None, actions: tuple | None = None) -> list:
+CLOSED_TRADES_LIMIT = 500
+EVENTS_LIMIT = 500
+
+
+def enrich_trade(rec: dict) -> dict:
+    """Add notional, leg count, and net P&L % so the dashboard can list every close."""
+    rec = dict(rec)
+    entry = rec.get("entry") if rec.get("entry") is not None else rec.get("avg_entry")
+    qty = rec.get("qty") if rec.get("qty") is not None else rec.get("total_qty")
+    if rec.get("total_notional") is None and entry is not None and qty is not None:
+        try:
+            rec["total_notional"] = float(entry) * float(qty)
+        except (TypeError, ValueError):
+            pass
+    if rec.get("leg_count") is None and rec.get("action") == "CLOSE":
+        rec["leg_count"] = 1
+    notion = rec.get("total_notional")
+    pnl = rec.get("pnl")
+    if notion is not None and pnl is not None and rec.get("pnl_pct") is None:
+        try:
+            n = float(notion)
+            if n:
+                rec["pnl_pct"] = round(100.0 * float(pnl) / n, 2)
+        except (TypeError, ValueError):
+            pass
+    return rec
+
+
+def load_closed_paper_trades(limit: int = CLOSED_TRADES_LIMIT, path: Path | None = None, actions: tuple | None = None) -> list:
     rows = []
     trades_path = path or PAPER_TRADES
     want = set(actions) if actions else {"CLOSE"}
@@ -668,6 +696,7 @@ def load_closed_paper_trades(limit: int = 40, path: Path | None = None, actions:
                 continue
             if rec.get("action") not in want:
                 continue
+            rec = enrich_trade(rec)
             rec["url"] = f"{CHART_URL}?symbol={rec.get('symbol')}&tf={rec.get('timeframe')}"
             rec["entry_txt"] = fmt_price(rec.get("entry") or rec.get("avg_entry"))
             rec["exit_txt"] = fmt_price(rec.get("exit") or rec.get("price"))
@@ -770,11 +799,11 @@ def build_paper(prices: dict, state_path: Path | None = None, trades_path: Path 
     wins = int(st.get("win_count") or 0)
     starting = float(st.get("starting_balance") or 1000)
     trades_file = trades_path or PAPER_TRADES
-    closed_trades = list(reversed(load_closed_paper_trades(40, path=trades_file)))
+    closed_trades = list(reversed(load_closed_paper_trades(CLOSED_TRADES_LIMIT, path=trades_file)))
     events = []
     if mode == "unconfirmed":
         events = list(reversed(load_closed_paper_trades(
-            60, path=trades_file, actions=("CLOSE", "FADED", "ADD", "REPAINTED"),
+            EVENTS_LIMIT, path=trades_file, actions=("CLOSE", "FADED", "ADD", "REPAINTED"),
         )))
     return {
         "starting_balance": starting,
