@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Idempotent: starts the Zigzag Swing dashboard publisher unless it is already running.
 cd "$(dirname "$0")" || exit 1
+# Use the new-account token for git/`gh` when present; never print it.
+if [ -z "${GH_TOKEN:-}" ] && [ -n "${GH_TOKEN_NEW:-}" ]; then
+  export GH_TOKEN="$GH_TOKEN_NEW"
+fi
 PIDF=push.pid
 LOG=push.log
 if [ -f "$PIDF" ]; then

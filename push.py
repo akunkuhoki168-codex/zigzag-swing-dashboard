@@ -51,7 +51,7 @@ PUSH_EVERY_S = 120
 DATA_MSG = "data snapshot"
 PUSHER_NAME = "adx-swing-pusher"
 PUSHER_EMAIL = "pusher@users.noreply.github.com"
-CHART_URL = "https://dedkovic441-hub.github.io/zigzag-swing/"
+CHART_URL = "https://akunkuhoki168-codex.github.io/zigzag-swing/"
 REST_BASES = [
     "https://fapi.binance.com",
     "https://fapi1.binance.com",
